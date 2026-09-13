@@ -239,7 +239,7 @@ class AuthenticationTests(ApiFixture):
         self.assertEqual(status, 200)
         self.assertEqual(body["api"], "linkplane.api/1")
         self.assertEqual(body["client"]["client_id"], "full")
-        self.assertEqual(body["version"], "0.5.0")
+        self.assertEqual(body["version"], "0.5.1")
         self.assertEqual(headers["Linkplane-Api"], "1")
         self.assertNotIn("Access-Control-Allow-Origin", headers)
         self.assertEqual(set(body), {"status", "api", "protocol", "version", "daemon", "last_seq", "client"})

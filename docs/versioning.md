@@ -4,7 +4,7 @@ Three things carry a version, and they are deliberately not the same number.
 
 | What | Form | Meaning | Today |
 |---|---|---|---|
-| Architecture milestone | git tag `core-vX.Y` (later `api-vX.Y`, …) | "this architectural section is complete and verified"; not a release, not installable by name | `core-v0.1`, `core-v0.2`, `api-v0.1` |
+| Architecture milestone | git tag `core-vX.Y` (later `api-vX.Y`, …) | "this architectural section is complete and verified"; not a release, not installable by name | `core-v0.1`, `core-v0.2`, `api-v0.1` (private archive), `onboarding-v0.1` (public) |
 | Package version | `pyproject.toml` / `linkplane --version`, SemVer | what a user installs; describes the shipped feature set | `0.4.0` |
 | Public release | git tag `vX.Y.Z` on the exact commit `pyproject.toml` declares | the only thing that gets a changelog entry, a package, and support | none yet |
 | Local API major | URL prefix `/vN/` (+ `linkplane.api/N` in `/vN/health` and the `Linkplane-Api` header) | interface compatibility of the local HTTP API: additive changes stay in `/vN`, breaking ones open `/vN+1` (`docs/local-api-design.md` §20) | `/v1` served by `linkplaned` (section closed by `api-v0.1`; not a release) |

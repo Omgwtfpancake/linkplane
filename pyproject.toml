@@ -5,12 +5,36 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "linkplane"
 version = "0.4.0"
-description = "A unified Android-to-Linux bridge"
+description = "An open, local-first control plane for real devices: connect your Android phone to your Linux desktop"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Linkplane contributors" }]
+keywords = ["android", "adb", "linux", "phone", "control-plane", "local-first", "automation", "scrcpy"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "Intended Audience :: Developers",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: System :: Hardware",
+  "Topic :: Utilities",
+]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/Omgwtfpancake/linkplane"
+Repository = "https://github.com/Omgwtfpancake/linkplane"
+Documentation = "https://github.com/Omgwtfpancake/linkplane/tree/main/docs"
+Issues = "https://github.com/Omgwtfpancake/linkplane/issues"
+Changelog = "https://github.com/Omgwtfpancake/linkplane/blob/main/CHANGELOG.md"
 
 [project.scripts]
 linkplane = "linkplane.cli:main"

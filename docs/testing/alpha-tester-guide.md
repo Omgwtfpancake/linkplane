@@ -1,0 +1,95 @@
+# Alpha tester guide (first session)
+
+Thank you for trying Linkplane. This is an alpha: it has passed a clean-machine test, but
+you are among the first people to use it without the author in the room. This session is
+bounded to about 30 minutes and never touches your photos, clipboard, or camera.
+
+## You need
+
+- **Arch Linux / Omarchy** or **Ubuntu 24.04** (other systemd distributions may work; say
+  which you used).
+- An Android phone, a USB cable that carries data, and a minute to enable Developer options
+  → USB debugging. Nothing is installed on the phone.
+- A terminal. No Python knowledge needed.
+
+## 1. Install
+
+```sh
+# Arch / Omarchy
+sudo pacman -S --needed python-pipx android-tools android-udev
+# Ubuntu 24.04
+sudo apt update && sudo apt install pipx adb
+
+pipx install <the wheel URL or git+ URL from the release page>
+pipx ensurepath          # once; then open a new terminal
+linkplane --version
+```
+
+Install `adb` **before** plugging the phone in.
+
+## 2. Set up
+
+```sh
+linkplane setup
+```
+
+Follow the screen. When the phone asks *Allow USB debugging?*, tap **Allow** and tick
+*Always allow from this computer*. Note how long it took and anything you had to read twice.
+
+## 3. Try these (all safe)
+
+```sh
+linkplane status                          # battery, storage, memory, Wi-Fi
+linkplane notify "Hello from Linkplane"   # a notification appears on the phone
+echo hello > /tmp/linkplane-test.txt && linkplane send /tmp/linkplane-test.txt
+linkplane events                          # unplug and replug the phone, watch; Ctrl+C
+linkplane doctor
+linkplane setup                           # again: it should change nothing and finish fast
+```
+
+## 4. Uninstall (end of session, or keep it!)
+
+```sh
+linkplane uninstall            # stops and removes the service; keeps your configuration
+linkplane uninstall --purge    # also removes Linkplane's own config/state (asks first)
+pipx uninstall linkplane
+```
+
+## If something fails
+
+Capture and include in your report:
+
+```sh
+linkplane doctor --json > doctor.json
+linkplane setup --json > setup.json      # if setup was the problem
+linkplane --version; python3 --version; adb version | head -1
+```
+
+Both JSON files contain paths and error codes, never tokens. Please **replace your phone's
+serial number** with `DEVICE_SERIAL` before posting; it is the only identifier in there.
+
+## Report
+
+Open an issue at https://github.com/Omgwtfpancake/linkplane/issues (templates: bug, setup
+problem, feature) or send the form below.
+
+### Feedback form
+
+```text
+OS / version:
+Phone (model only):
+Install: worked / failed — command used:
+Setup: worked / failed — where it stopped (line or error code):
+Time from install command to "Your phone is ready" (rough):
+What was confusing:
+First command that failed (if any) and its output:
+doctor.json / setup.json attached (serial replaced):
+What felt useful:
+What felt unnecessary:
+Would you keep it installed?  yes / no / not yet — why:
+```
+
+## Privacy
+
+Linkplane is local-first: no account, no telemetry, nothing leaves your computer unless you
+send it (a file you `send`, a backup you pull). Your report is the only thing that travels.

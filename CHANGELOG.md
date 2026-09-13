@@ -7,6 +7,13 @@ listed here).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.5.1] — 2026-09-13
+
+First-run onboarding polish from alpha tester #1's feedback (GitHub pre-release).
+See `docs/releases/v0.5.1.md`.
+
 ### Changed
 - Setup's completion screen suggests the phone notification first, then `status`, then a
   complete, copy-pasteable file send (it used to print `linkplane send <file>`, which

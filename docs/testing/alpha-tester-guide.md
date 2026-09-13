@@ -21,7 +21,7 @@ Arch Linux / Omarchy:
 
 ```sh
 sudo pacman -S --needed python-pipx android-tools android-udev
-pipx install https://github.com/Omgwtfpancake/linkplane/releases/download/v0.5.0/linkplane-0.5.0-py3-none-any.whl
+pipx install https://github.com/Omgwtfpancake/linkplane/releases/download/v0.5.1/linkplane-0.5.1-py3-none-any.whl
 linkplane --version
 ```
 
@@ -30,7 +30,7 @@ Ubuntu 24.04:
 ```sh
 sudo apt update
 sudo apt install pipx adb
-pipx install https://github.com/Omgwtfpancake/linkplane/releases/download/v0.5.0/linkplane-0.5.0-py3-none-any.whl
+pipx install https://github.com/Omgwtfpancake/linkplane/releases/download/v0.5.1/linkplane-0.5.1-py3-none-any.whl
 linkplane --version
 ```
 

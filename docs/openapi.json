@@ -1,0 +1,2384 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Linkplane local API",
+    "version": "1",
+    "x-protocol": "linkplane.api/1",
+    "description": "A transport adapter over linkplaned (docs/local-api-design.md, ADR 0012). Loopback only. Every request needs `Authorization: Bearer <token>` (linkplane clients create); tokens are never accepted in the URL. Public contracts describe Linkplane's domain, not its internal vocabulary."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8741"
+    }
+  ],
+  "security": [
+    {
+      "bearer": []
+    }
+  ],
+  "paths": {
+    "/v1/health": {
+      "get": {
+        "summary": "API and daemon status",
+        "responses": {
+          "200": {
+            "description": "status and version information only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "no, malformed, unknown, or revoked bearer token (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "scope not granted (LP-CLIENT-002), or an unacceptable Host/Origin header (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/devices": {
+      "get": {
+        "summary": "registry: profiles and observed devices",
+        "x-scope": "device.read",
+        "responses": {
+          "200": {
+            "description": "devices",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "no, malformed, unknown, or revoked bearer token (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "scope not granted (LP-CLIENT-002), or an unacceptable Host/Origin header (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/devices/{device_id}": {
+      "get": {
+        "summary": "one device (identity, providers, observed state)",
+        "x-scope": "device.read",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "canonical device_id; a profile name or serial:<x> alias is also accepted"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Device"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such device (LP-CONFIG-003)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "no, malformed, unknown, or revoked bearer token (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "scope not granted (LP-CLIENT-002), or an unacceptable Host/Origin header (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/devices/{device_id}/state": {
+      "get": {
+        "summary": "observed state",
+        "x-scope": "device.state.read",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "canonical device_id; a profile name or serial:<x> alias is also accepted"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DeviceState as observed by the daemon",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceState"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such device (LP-CONFIG-003) or not observed (LP-RESOURCE-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "no, malformed, unknown, or revoked bearer token (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "scope not granted (LP-CLIENT-002), or an unacceptable Host/Origin header (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/devices/{device_id}/capabilities": {
+      "get": {
+        "summary": "what Linkplane can do with this device now",
+        "x-scope": "device.read",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "canonical device_id; a profile name or serial:<x> alias is also accepted"
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "adb",
+                "ssh"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "per-provider reports and the effective list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Capabilities"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "no, malformed, unknown, or revoked bearer token (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "scope not granted (LP-CLIENT-002), or an unacceptable Host/Origin header (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/devices/{device_id}/actions": {
+      "post": {
+        "summary": "run an action",
+        "x-scope": "the action name",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "canonical device_id; a profile name or serial:<x> alias is also accepted"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "immediate action completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "job started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "/v1/jobs/{job_id}"
+              }
+            }
+          },
+          "400": {
+            "description": "invalid request (LP-REQUEST-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such device (LP-CONFIG-003)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "already running (LP-STATE-001, details.job_id), device cannot do it (LP-CAPABILITY-001), unavailable now (LP-CAPABILITY-002)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "catalogue capability not implemented over the API (LP-CAPABILITY-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "provider failure (LP-PROVIDER-*, LP-AUTH-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "device unreachable/not connected/not authorized/host USB permission, dependency missing (LP-CONNECT-*, LP-AUTH-002, LP-AUTH-003, LP-DEPENDENCY-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "timeout (LP-TIMEOUT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal (LP-INTERNAL-001), configuration (LP-CONFIG-001/002/004)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "no, malformed, unknown, or revoked bearer token (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "scope not granted (LP-CLIENT-002), or an unacceptable Host/Origin header (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/jobs": {
+      "get": {
+        "summary": "job records, newest first",
+        "x-scope": "jobs.read",
+        "parameters": [
+          {
+            "name": "device",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "canonical id or alias"
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "public capability name (backup.photos) or job action (backup)"
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "running",
+                "retrying",
+                "completed",
+                "failed",
+                "cancelled",
+                "skipped"
+              ]
+            }
+          },
+          {
+            "name": "rule",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "correlation_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 500
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "jobs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "no, malformed, unknown, or revoked bearer token (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "scope not granted (LP-CLIENT-002), or an unacceptable Host/Origin header (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}": {
+      "get": {
+        "summary": "one job",
+        "x-scope": "jobs.read",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such job (LP-RESOURCE-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "no, malformed, unknown, or revoked bearer token (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "scope not granted (LP-CLIENT-002), or an unacceptable Host/Origin header (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}/cancel": {
+      "post": {
+        "summary": "cancel a running job (cooperative)",
+        "x-scope": "jobs.cancel",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "Uses the daemon's JobRunner. No body. The job reaches `cancelled` at its next boundary; observe it on GET /v1/jobs/{job_id}.",
+        "responses": {
+          "202": {
+            "description": "cancellation accepted; the record as it stands (running or retrying)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "already cancelled (idempotent)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "already terminal (completed/failed/skipped) or recorded as running but not running in this daemon (LP-STATE-001, details.state, details.stale)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such job (LP-RESOURCE-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "a body was sent (LP-REQUEST-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "no, malformed, unknown, or revoked bearer token (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "scope not granted (LP-CLIENT-002), or an unacceptable Host/Origin header (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/events": {
+      "get": {
+        "summary": "canonical event history by seq",
+        "x-scope": "events.read",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "seq > after"
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "asc"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 100,
+              "maximum": 1000
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "observer.started",
+                  "observer.stopped",
+                  "device.connected",
+                  "device.disconnected",
+                  "device.authorized",
+                  "device.unauthorized",
+                  "battery.changed",
+                  "battery.low",
+                  "battery.ok",
+                  "charging.started",
+                  "charging.stopped",
+                  "wifi.connected",
+                  "wifi.disconnected"
+                ]
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "device",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true,
+            "description": "canonical id or alias"
+          },
+          {
+            "name": "correlation_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "filter (not a cursor): ts >= since"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "events and last_seq",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad cursor/filter, or history disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "no, malformed, unknown, or revoked bearer token (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "scope not granted (LP-CLIENT-002), or an unacceptable Host/Origin header (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/events/stream": {
+      "get": {
+        "summary": "Server-Sent Events: canonical Events only",
+        "x-scope": "events.read",
+        "description": "Frames: `event: stream` once (control: protocol, last_seq, resumed_after, gap), then `event: event` with `id:` = seq. Resume with `after=<seq>` or `Last-Event-ID: <seq>` (after wins); both mean seq > N. Replay from history then live, no duplicates within a connection, strictly increasing seq. Browser clients use fetch() streaming with the Authorization header.",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "observer.started",
+                  "observer.stopped",
+                  "device.connected",
+                  "device.disconnected",
+                  "device.authorized",
+                  "device.unauthorized",
+                  "battery.changed",
+                  "battery.low",
+                  "battery.ok",
+                  "charging.started",
+                  "charging.stopped",
+                  "wifi.connected",
+                  "wifi.disconnected"
+                ]
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "device",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true,
+            "description": "canonical id or alias"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "text/event-stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "malformed cursor or history disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "too many open streams (LP-STATE-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "no, malformed, unknown, or revoked bearer token (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "scope not granted (LP-CLIENT-002), or an unacceptable Host/Origin header (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/rules": {
+      "get": {
+        "summary": "the daemon's loaded rules (inspection only)",
+        "x-scope": "rules.read (sensitive; not in the read default)",
+        "description": "The rules as the daemon loaded them (active and blocked). `run` steps never expose their command text. No filesystem path is exposed.",
+        "responses": {
+          "200": {
+            "description": "rules",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rules"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "no, malformed, unknown, or revoked bearer token (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "scope not granted (LP-CLIENT-002), or an unacceptable Host/Origin header (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/rules/reload": {
+      "post": {
+        "summary": "reload the daemon's configured rules file",
+        "x-scope": "rules.reload",
+        "description": "No body. Reloads the file the daemon was started with; a broken file leaves the previous rules in force (500 LP-CONFIG-002).",
+        "responses": {
+          "200": {
+            "description": "reloaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RulesSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "a body was sent (LP-REQUEST-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "rules file invalid (LP-CONFIG-002)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "no, malformed, unknown, or revoked bearer token (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "scope not granted (LP-CLIENT-002), or an unacceptable Host/Origin header (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/audit": {
+      "get": {
+        "summary": "audit entries, newest first, redacted for HTTP",
+        "x-scope": "audit.read (sensitive; explicit grant only)",
+        "description": "Read backwards from the end of the log, bounded by `limit`; sensitive keys (clipboard text, commands, stdout, tokens, credentials) are redacted in the projection, never in the file. `device` is the registry name pinned records carry; `device_id` is the canonical id resolved at read time, null when the name no longer resolves (renamed/removed profile, `*`).",
+        "parameters": [
+          {
+            "name": "device",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "actor",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "decision",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "job_id",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "rule",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "correlation_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 100,
+              "maximum": 1000
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad filter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "no, malformed, unknown, or revoked bearer token (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "scope not granted (LP-CLIENT-002), or an unacceptable Host/Origin header (LP-CLIENT-001)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "token from `linkplane clients create`; header only"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "type",
+              "message",
+              "code",
+              "hints",
+              "correlation_id",
+              "details"
+            ],
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string",
+                "enum": [
+                  "LP-API-001",
+                  "LP-AUTH-001",
+                  "LP-AUTH-002",
+                  "LP-AUTH-003",
+                  "LP-CANCELLED-001",
+                  "LP-CAPABILITY-001",
+                  "LP-CAPABILITY-002",
+                  "LP-CLIENT-001",
+                  "LP-CLIENT-002",
+                  "LP-CONFIG-001",
+                  "LP-CONFIG-002",
+                  "LP-CONFIG-003",
+                  "LP-CONFIG-004",
+                  "LP-CONNECT-001",
+                  "LP-CONNECT-002",
+                  "LP-CONNECT-003",
+                  "LP-DAEMON-001",
+                  "LP-DAEMON-002",
+                  "LP-DAEMON-003",
+                  "LP-DEPENDENCY-001",
+                  "LP-INTERNAL-001",
+                  "LP-PROVIDER-001",
+                  "LP-PROVIDER-002",
+                  "LP-PROVIDER-003",
+                  "LP-REQUEST-001",
+                  "LP-RESOURCE-001",
+                  "LP-STATE-001",
+                  "LP-TIMEOUT-001"
+                ]
+              },
+              "hints": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "correlation_id": {
+                "type": "string"
+              },
+              "details": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      },
+      "Health": {
+        "type": "object",
+        "required": [
+          "status",
+          "api",
+          "protocol",
+          "version",
+          "daemon",
+          "last_seq",
+          "client"
+        ],
+        "properties": {
+          "status": {
+            "const": "ok"
+          },
+          "api": {
+            "const": "linkplane.api/1"
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "daemon": {
+            "type": "object",
+            "properties": {
+              "pid": {
+                "type": "integer"
+              },
+              "started": {
+                "type": "string"
+              }
+            }
+          },
+          "last_seq": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "client": {
+            "type": "object",
+            "properties": {
+              "client_id": {
+                "type": "string"
+              },
+              "client_type": {
+                "type": "string"
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "DeviceState": {
+        "type": "object",
+        "required": [
+          "device",
+          "provider",
+          "connection",
+          "address",
+          "battery",
+          "wifi_ssid",
+          "last_seen",
+          "updated"
+        ],
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "connection": {
+            "type": "string"
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "battery": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "wifi_ssid": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_seen": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated": {
+            "type": "string"
+          }
+        }
+      },
+      "ProviderEndpoint": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "adb",
+              "ssh"
+            ]
+          },
+          "address": {
+            "type": "string"
+          },
+          "observed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Device": {
+        "type": "object",
+        "required": [
+          "device_id",
+          "name",
+          "observed",
+          "default",
+          "connection",
+          "provider",
+          "address",
+          "last_seen",
+          "providers",
+          "state"
+        ],
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "description": "canonical, stable across renames"
+          },
+          "name": {
+            "type": "string",
+            "description": "registry name (alias); the value pinned records carry in `device`"
+          },
+          "observed": {
+            "type": "boolean"
+          },
+          "default": {
+            "type": "boolean"
+          },
+          "connection": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_seen": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProviderEndpoint"
+            }
+          },
+          "state": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DeviceState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "DeviceList": {
+        "type": "object",
+        "properties": {
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Device"
+            }
+          }
+        }
+      },
+      "CapabilityReport": {
+        "type": "object",
+        "required": [
+          "name",
+          "status",
+          "detail",
+          "requirements",
+          "metadata"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "device.ping",
+              "device.status",
+              "battery.read",
+              "storage.read",
+              "files.send",
+              "backup.photos",
+              "notify.post",
+              "clipboard.read",
+              "clipboard.write",
+              "screen.control",
+              "camera.capture",
+              "device.find",
+              "clipboard.sync"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "supported",
+              "unsupported",
+              "unavailable",
+              "permission-denied",
+              "provider-error"
+            ]
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "metadata": {
+            "type": "object"
+          }
+        }
+      },
+      "Capabilities": {
+        "type": "object",
+        "properties": {
+          "device_id": {
+            "type": "string"
+          },
+          "queried": {
+            "type": "string"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/CapabilityReport"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "provider": {
+                      "type": "string"
+                    },
+                    "granted": {
+                      "type": "boolean",
+                      "description": "authorization metadata about the calling client, not device state"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "by_provider": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/CapabilityReport"
+              }
+            }
+          }
+        }
+      },
+      "ActionRequest": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "backup.photos",
+              "battery.read",
+              "camera.capture",
+              "clipboard.read",
+              "clipboard.sync",
+              "clipboard.write",
+              "device.find",
+              "device.ping",
+              "device.status",
+              "files.send",
+              "notify.post"
+            ],
+            "description": "capability name; execution mode is declared per action (x-actions)"
+          },
+          "parameters": {
+            "type": "object",
+            "description": "the service Request fields the action accepts (see x-actions)"
+          },
+          "correlation_id": {
+            "type": "string",
+            "maxLength": 128
+          }
+        }
+      },
+      "Result": {
+        "type": "object",
+        "required": [
+          "action",
+          "device_id",
+          "device",
+          "provider",
+          "actor",
+          "correlation_id",
+          "started",
+          "finished",
+          "value",
+          "warnings"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "device_id": {
+            "type": "string"
+          },
+          "device": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "correlation_id": {
+            "type": "string"
+          },
+          "started": {
+            "type": "string"
+          },
+          "finished": {
+            "type": "string"
+          },
+          "value": {
+            "type": "object",
+            "description": "the service result's to_dict()"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Job": {
+        "type": "object",
+        "required": [
+          "id",
+          "automation",
+          "action",
+          "device",
+          "state",
+          "started",
+          "finished",
+          "attempt",
+          "progress",
+          "result",
+          "error",
+          "correlation_id",
+          "actor",
+          "rule",
+          "job_action",
+          "device_id"
+        ],
+        "description": "JobRecord as persisted, plus the public vocabulary: `action` is the public capability name (backup.photos), `job_action` the record's own rules/jobs name (backup); `rule` aliases `automation` (null for API-started jobs). `device` is the registry name pinned records carry; `device_id` is the canonical id resolved at read time, null when the name no longer resolves (renamed/removed profile, `*`).",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "automation": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "backup.photos",
+              "clipboard.sync",
+              "files.send"
+            ]
+          },
+          "device": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "running",
+              "retrying",
+              "completed",
+              "failed",
+              "cancelled",
+              "skipped"
+            ]
+          },
+          "started": {
+            "type": "string"
+          },
+          "finished": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "attempt": {
+            "type": "integer"
+          },
+          "progress": {
+            "type": "object"
+          },
+          "result": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "correlation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "actor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "job_action": {
+            "type": "string",
+            "enum": [
+              "backup",
+              "clipboard-sync",
+              "send"
+            ]
+          },
+          "rule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "device_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "JobList": {
+        "type": "object",
+        "properties": {
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Job"
+            }
+          }
+        }
+      },
+      "Event": {
+        "type": "object",
+        "required": [
+          "type",
+          "device",
+          "ts",
+          "provider",
+          "data",
+          "seq",
+          "event_id",
+          "correlation_id",
+          "source",
+          "schema",
+          "device_id"
+        ],
+        "description": "Event.to_dict() as persisted (schema linkplane.event/1) plus `device_id`. `device` is the registry name pinned records carry; `device_id` is the canonical id resolved at read time, null when the name no longer resolves (renamed/removed profile, `*`).",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "observer.started",
+              "observer.stopped",
+              "device.connected",
+              "device.disconnected",
+              "device.authorized",
+              "device.unauthorized",
+              "battery.changed",
+              "battery.low",
+              "battery.ok",
+              "charging.started",
+              "charging.stopped",
+              "wifi.connected",
+              "wifi.disconnected"
+            ]
+          },
+          "device": {
+            "type": "string"
+          },
+          "ts": {
+            "type": "string"
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "data": {
+            "type": "object"
+          },
+          "seq": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "event_id": {
+            "type": "string"
+          },
+          "correlation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "schema": {
+            "const": "linkplane.event/1"
+          },
+          "device_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "EventList": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Event"
+            }
+          },
+          "last_seq": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        }
+      },
+      "Rule": {
+        "type": "object",
+        "required": [
+          "name",
+          "state",
+          "enabled",
+          "when",
+          "device",
+          "device_id",
+          "if",
+          "cooldown_seconds",
+          "on_initial",
+          "continue_on_error",
+          "allow",
+          "blocked_actions",
+          "do"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "blocked"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "when": {
+            "type": "string",
+            "enum": [
+              "observer.started",
+              "observer.stopped",
+              "device.connected",
+              "device.disconnected",
+              "device.authorized",
+              "device.unauthorized",
+              "battery.changed",
+              "battery.low",
+              "battery.ok",
+              "charging.started",
+              "charging.stopped",
+              "wifi.connected",
+              "wifi.disconnected"
+            ]
+          },
+          "device": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "device_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "if": {
+            "type": "object"
+          },
+          "cooldown_seconds": {
+            "type": "number"
+          },
+          "on_initial": {
+            "type": "boolean"
+          },
+          "continue_on_error": {
+            "type": "boolean"
+          },
+          "allow": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "blocked_actions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "do": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "action"
+              ],
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "capability": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "privileged": {
+                  "type": "boolean"
+                },
+                "command": {
+                  "const": "[redacted]",
+                  "description": "run command text is never exposed"
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "RulesSummary": {
+        "type": "object",
+        "required": [
+          "loaded",
+          "active",
+          "blocked",
+          "fired"
+        ],
+        "properties": {
+          "loaded": {
+            "type": "integer"
+          },
+          "active": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "blocked": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "fired": {
+            "type": "integer"
+          }
+        }
+      },
+      "Rules": {
+        "allOf": [
+          {
+            "type": "object",
+            "required": [
+              "loaded",
+              "active",
+              "blocked",
+              "fired"
+            ],
+            "properties": {
+              "loaded": {
+                "type": "integer"
+              },
+              "active": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "blocked": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "fired": {
+                "type": "integer"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "rules"
+            ],
+            "properties": {
+              "rules": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Rule"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "AuditEntry": {
+        "type": "object",
+        "required": [
+          "schema",
+          "audit_id",
+          "ts",
+          "kind",
+          "actor",
+          "source",
+          "decision",
+          "details",
+          "device_id"
+        ],
+        "description": "linkplane.audit/2 line, redacted for HTTP; `action` is the public name when the entry's action is a job action (then `job_action` holds the original). `device` is the registry name pinned records carry; `device_id` is the canonical id resolved at read time, null when the name no longer resolves (renamed/removed profile, `*`).",
+        "properties": {
+          "schema": {
+            "type": "string"
+          },
+          "audit_id": {
+            "type": "string"
+          },
+          "ts": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "device": {
+            "type": "string"
+          },
+          "device_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "job_action": {
+            "type": "string"
+          },
+          "correlation_id": {
+            "type": "string"
+          },
+          "details": {
+            "type": "object"
+          }
+        }
+      },
+      "AuditList": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditEntry"
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-actions": {
+    "device.ping": {
+      "action": "device.ping",
+      "execution": "immediate",
+      "scope": "device.ping",
+      "providers": [
+        "adb",
+        "ssh"
+      ],
+      "parameters": [],
+      "required": [],
+      "job_action": null
+    },
+    "device.status": {
+      "action": "device.status",
+      "execution": "immediate",
+      "scope": "device.status",
+      "providers": [
+        "adb",
+        "ssh"
+      ],
+      "parameters": [],
+      "required": [],
+      "job_action": null
+    },
+    "battery.read": {
+      "action": "battery.read",
+      "execution": "immediate",
+      "scope": "battery.read",
+      "providers": [
+        "adb",
+        "ssh"
+      ],
+      "parameters": [],
+      "required": [],
+      "job_action": null
+    },
+    "notify.post": {
+      "action": "notify.post",
+      "execution": "immediate",
+      "scope": "notify.post",
+      "providers": [
+        "adb",
+        "ssh"
+      ],
+      "parameters": [
+        "message",
+        "title",
+        "notification_id",
+        "dry_run"
+      ],
+      "required": [
+        "message"
+      ],
+      "job_action": null
+    },
+    "device.find": {
+      "action": "device.find",
+      "execution": "immediate",
+      "scope": "device.find",
+      "providers": [
+        "adb"
+      ],
+      "parameters": [
+        "duration",
+        "ring",
+        "torch",
+        "vibrate",
+        "message",
+        "dry_run"
+      ],
+      "required": [],
+      "job_action": null
+    },
+    "clipboard.read": {
+      "action": "clipboard.read",
+      "execution": "immediate",
+      "scope": "clipboard.read",
+      "providers": [
+        "ssh"
+      ],
+      "parameters": [],
+      "required": [],
+      "job_action": null
+    },
+    "clipboard.write": {
+      "action": "clipboard.write",
+      "execution": "immediate",
+      "scope": "clipboard.write",
+      "providers": [
+        "ssh"
+      ],
+      "parameters": [
+        "text"
+      ],
+      "required": [
+        "text"
+      ],
+      "job_action": null
+    },
+    "files.send": {
+      "action": "files.send",
+      "execution": "job",
+      "scope": "files.send",
+      "providers": [
+        "adb"
+      ],
+      "parameters": [
+        "paths",
+        "destination",
+        "dry_run"
+      ],
+      "required": [
+        "paths"
+      ],
+      "job_action": "send"
+    },
+    "backup.photos": {
+      "action": "backup.photos",
+      "execution": "job",
+      "scope": "backup.photos",
+      "providers": [
+        "adb"
+      ],
+      "parameters": [
+        "source",
+        "destination",
+        "dry_run"
+      ],
+      "required": [],
+      "job_action": "backup"
+    },
+    "clipboard.sync": {
+      "action": "clipboard.sync",
+      "execution": "job",
+      "scope": "clipboard.sync",
+      "providers": [
+        "ssh"
+      ],
+      "parameters": [
+        "interval",
+        "prefer"
+      ],
+      "required": [],
+      "job_action": "clipboard-sync"
+    },
+    "camera.capture": {
+      "action": "camera.capture",
+      "execution": "immediate",
+      "scope": "camera.capture",
+      "providers": [
+        "ssh"
+      ],
+      "parameters": [
+        "output",
+        "camera_id",
+        "force",
+        "dry_run"
+      ],
+      "required": [],
+      "job_action": null
+    }
+  },
+  "x-public-actions": {
+    "backup": "backup.photos",
+    "clipboard-sync": "clipboard.sync",
+    "send": "files.send"
+  },
+  "x-status-for-code": {
+    "LP-API-001": 503,
+    "LP-AUTH-001": 502,
+    "LP-AUTH-002": 503,
+    "LP-AUTH-003": 503,
+    "LP-CANCELLED-001": 503,
+    "LP-CAPABILITY-001": 409,
+    "LP-CAPABILITY-002": 409,
+    "LP-CLIENT-001": 401,
+    "LP-CLIENT-002": 403,
+    "LP-CONFIG-001": 500,
+    "LP-CONFIG-002": 500,
+    "LP-CONFIG-003": 404,
+    "LP-CONFIG-004": 500,
+    "LP-CONNECT-001": 503,
+    "LP-CONNECT-002": 503,
+    "LP-CONNECT-003": 409,
+    "LP-DAEMON-001": 503,
+    "LP-DAEMON-002": 503,
+    "LP-DAEMON-003": 500,
+    "LP-DEPENDENCY-001": 503,
+    "LP-INTERNAL-001": 500,
+    "LP-PROVIDER-001": 502,
+    "LP-PROVIDER-002": 502,
+    "LP-PROVIDER-003": 502,
+    "LP-REQUEST-001": 400,
+    "LP-RESOURCE-001": 404,
+    "LP-STATE-001": 409,
+    "LP-TIMEOUT-001": 504
+  },
+  "x-sensitive-keys": [
+    "authorization",
+    "command",
+    "cookie",
+    "credentials",
+    "env",
+    "environment",
+    "identity_file",
+    "passphrase",
+    "password",
+    "private_key",
+    "secret",
+    "secrets",
+    "stderr",
+    "stdout",
+    "text",
+    "token",
+    "token_sha256",
+    "tokens"
+  ]
+}

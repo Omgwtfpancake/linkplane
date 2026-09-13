@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "linkplane"
+version = "0.4.0"
+description = "A unified Android-to-Linux bridge"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Linkplane contributors" }]
+dependencies = []
+
+[project.scripts]
+linkplane = "linkplane.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

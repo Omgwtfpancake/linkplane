@@ -1,0 +1,78 @@
+#!/home/user/.local/share/phone-bridge-venv/bin/python
+
+from flask import Flask, jsonify
+import json
+import subprocess
+
+app = Flask(__name__)
+
+SSH = [
+    "ssh",
+    "-o", "BatchMode=yes",
+    "-o", "ConnectTimeout=5",
+    "-i", "/home/user/.ssh/phone_bridge",
+    "-p", "8022",
+    "u0_a123@192.0.2.229",
+]
+
+def ssh_text(command, timeout=10):
+    result = subprocess.run(
+        SSH + [command],
+        capture_output=True,
+        text=True,
+        timeout=timeout
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "remote command failed")
+
+    return result.stdout
+
+def ssh_json(command, timeout=10):
+    return json.loads(ssh_text(command, timeout))
+
+@app.get("/health")
+def health():
+    return jsonify({"ok": True})
+
+@app.get("/memory")
+def memory():
+    try:
+        return jsonify(ssh_json(
+            """awk '
+            /MemTotal:/ {total=$2}
+            /MemAvailable:/ {avail=$2}
+            END {
+              printf "{\\"total_kb\\":%s,\\"available_kb\\":%s}\\n", total, avail
+            }' /proc/meminfo"""
+        ))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.get("/storage")
+def storage():
+    try:
+        return jsonify(ssh_json(
+            """df -Pk "$HOME" | awk '
+            NR==2 {
+              gsub("%","",$5)
+              printf "{\\"total_kb\\":%s,\\"used_kb\\":%s,\\"free_kb\\":%s,\\"used_percent\\":%s}\\n", $2,$3,$4,$5
+            }'"""
+        ))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.get("/battery")
+def battery():
+    try:
+        return jsonify(ssh_json(
+            'cat "$HOME/.battery-cache.json"'
+        ))
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "status": "battery cache unavailable"
+        }), 503
+
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=8765)

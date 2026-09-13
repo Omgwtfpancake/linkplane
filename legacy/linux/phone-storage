@@ -1,0 +1,2 @@
+#!/bin/bash
+phone-status-json | jq '.storage'

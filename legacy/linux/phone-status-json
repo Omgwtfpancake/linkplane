@@ -1,0 +1,2 @@
+#!/bin/bash
+ssh -i ~/.ssh/phone_bridge -p 8022 u0_a123@192.0.2.229 '~/phone-status-json.sh'

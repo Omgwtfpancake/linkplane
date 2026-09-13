@@ -20,9 +20,9 @@ In order of fidelity; use the best one available and say which was used.
 | partial | container without systemd or USB | install and CLI only; never the final proof |
 
 A run at tier 3 is labelled *fresh-HOME approximation*; it does not by itself earn a
-distro the Supported status (§16 of the Slice 2 brief). **Status: run 001 (tier 3) has
-passed; no tier 1 or 2 run has happened yet.** The next proof should be an Ubuntu 24.04 VM
-or a genuinely fresh Linux user with systemd and USB access.
+distro the Supported status (§16 of the Slice 2 brief). **Status: run 001 (tier 3, Arch, fresh HOME) passed; run 002 (tier 1, Ubuntu 24.04 VM
+with USB passthrough, installed from the public repository) passed — see
+`docs/testing/onboarding-run-002.md`.**
 
 ## 2. Preconditions
 

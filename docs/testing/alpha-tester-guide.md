@@ -14,18 +14,27 @@ bounded to about 30 minutes and never touches your photos, clipboard, or camera.
 
 ## 1. Install
 
-```sh
-# Arch / Omarchy
-sudo pacman -S --needed python-pipx android-tools android-udev
-# Ubuntu 24.04
-sudo apt update && sudo apt install pipx adb
+Pick the block for your operating system and run only that one. Install `adb`
+**before** plugging the phone in.
 
-pipx install <the wheel URL or git+ URL from the release page>
-pipx ensurepath          # once; then open a new terminal
+Arch Linux / Omarchy:
+
+```sh
+sudo pacman -S --needed python-pipx android-tools android-udev
+pipx install https://github.com/Omgwtfpancake/linkplane/releases/download/v0.5.0/linkplane-0.5.0-py3-none-any.whl
 linkplane --version
 ```
 
-Install `adb` **before** plugging the phone in.
+Ubuntu 24.04:
+
+```sh
+sudo apt update
+sudo apt install pipx adb
+pipx install https://github.com/Omgwtfpancake/linkplane/releases/download/v0.5.0/linkplane-0.5.0-py3-none-any.whl
+linkplane --version
+```
+
+If `linkplane` is not found, run `pipx ensurepath` once and open a new terminal.
 
 ## 2. Set up
 
@@ -39,9 +48,10 @@ Follow the screen. When the phone asks *Allow USB debugging?*, tap **Allow** and
 ## 3. Try these (all safe)
 
 ```sh
-linkplane status                          # battery, storage, memory, Wi-Fi
-linkplane notify "Hello from Linkplane"   # a notification appears on the phone
-echo hello > /tmp/linkplane-test.txt && linkplane send /tmp/linkplane-test.txt
+linkplane notify "Hello from Linkplane"   # look at the phone: that is Linkplane talking to it
+linkplane status                          # battery, storage, memory (Wi-Fi appears when the phone's Wi-Fi is on)
+echo "Hello from Linkplane" > /tmp/linkplane-hello.txt
+linkplane send /tmp/linkplane-hello.txt   # lands in the phone's Download folder
 linkplane events                          # unplug and replug the phone, watch; Ctrl+C
 linkplane doctor
 linkplane setup                           # again: it should change nothing and finish fast

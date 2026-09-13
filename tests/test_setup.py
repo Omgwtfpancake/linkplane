@@ -259,7 +259,7 @@ class SetupHappyPathTests(unittest.TestCase):
         self.assertEqual(by_name(result)["Battery"].summary, "84% (discharging)")
         self.assertIsNone(result.api_client)
         self.assertFalse(h.clients.exists(), "no API client without --api-client")
-        self.assertEqual(result.next_steps[0], "linkplane status")
+        self.assertEqual(result.next_steps[0], 'linkplane notify "Hello from Linkplane"')
         # The name prompt was offered with the default.
         self.assertEqual(h.prompts, [("Name this device", "phone")])
 
@@ -826,3 +826,41 @@ class HelpersTests(unittest.TestCase):
         text = service.unit_text(["/home/u/.local/bin/linkplane", "daemon", "run", "--no-api"])
         self.assertEqual(exec_start_of(text), ["/home/u/.local/bin/linkplane", "daemon", "run", "--no-api"])
         self.assertIsNone(exec_start_of("[Service]\nType=simple\n"))
+
+
+class CompletionSuggestionTests(unittest.TestCase):
+    """Alpha tester #1 (v0.5.0) was told `linkplane send <file>`, typed `linkplane send`, and
+    got an argument error as the first thing after a successful setup. Every suggested
+    command must run exactly as printed."""
+
+    def test_suggestions_are_complete_commands_with_notify_first(self):
+        from linkplane.setup import NEXT_STEPS, SEND_EXAMPLE_PATH
+
+        self.assertEqual(NEXT_STEPS[0], 'linkplane notify "Hello from Linkplane"')
+        for line in NEXT_STEPS:
+            self.assertNotIn("<", line, line)
+            self.assertNotIn(">file", line, line)
+            self.assertNotRegex(line, r"linkplane send\s*$", line)
+        send_lines = [line for line in NEXT_STEPS if "linkplane send" in line]
+        self.assertEqual(len(send_lines), 1)
+        self.assertIn(f"linkplane send {SEND_EXAMPLE_PATH}", send_lines[0])
+        self.assertIn(f"> {SEND_EXAMPLE_PATH} &&", send_lines[0], "the file is created before it is sent")
+
+    def test_send_suggestion_parses_as_a_valid_send_command(self):
+        import shlex
+        from linkplane.cli import build_parser
+        from linkplane.setup import NEXT_STEPS
+
+        send_line = next(line for line in NEXT_STEPS if "linkplane send" in line)
+        argv = shlex.split(send_line.split("&&", 1)[1].strip())[1:]  # drop the leading "linkplane"
+        arguments = build_parser().parse_args(argv)
+        self.assertEqual(arguments.command, "send")
+        self.assertEqual(arguments.paths, ["/tmp/linkplane-hello.txt"])
+
+    def test_successful_setup_returns_the_suggestions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = Harness(directory).run()
+        from linkplane.setup import NEXT_STEPS
+
+        self.assertTrue(result.ok, result.failure)
+        self.assertEqual(result.next_steps, NEXT_STEPS)

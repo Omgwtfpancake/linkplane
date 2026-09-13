@@ -27,17 +27,22 @@ package manager.
 | USB access rules | lets your user open the phone over USB | `android-udev` | included with `adb` | included with `android-tools` |
 | systemd user session | runs the background service | part of the desktop login | | |
 
-Arch / Omarchy, in one line:
+Choose the section for your operating system; do not run both sets of commands. Install
+`adb` before plugging the phone in, so its udev rules apply to the device.
+
+### Arch Linux / Omarchy
 
 ```sh
 sudo pacman -S --needed python-pipx android-tools android-udev
 ```
 
-Ubuntu 24.04, in one line (install `adb` before plugging the phone in, so its udev rules
-apply to the device):
+### Ubuntu 24.04
+
+Run this instead:
 
 ```sh
-sudo apt update && sudo apt install pipx adb
+sudo apt update
+sudo apt install pipx adb
 ```
 
 `linkplane setup` detects a missing `adb`, shows the exact command for your package manager,
@@ -48,9 +53,12 @@ needs root itself.
 
 ```sh
 pipx install https://github.com/Omgwtfpancake/linkplane/releases/download/v0.5.0/linkplane-0.5.0-py3-none-any.whl
-pipx ensurepath               # once, if pipx says ~/.local/bin is not on your PATH; then open a new terminal
 linkplane --version           # linkplane 0.5.0
 ```
+
+If `linkplane` is not found after installation, run `pipx ensurepath` once and open a new
+terminal; it adds `~/.local/bin` to your PATH. If the command is already found, there is
+nothing to do.
 
 `which linkplane` should print `~/.local/bin/linkplane`. The same result from the tagged
 source, if you prefer (needs `git`): `pipx install "git+https://github.com/Omgwtfpancake/linkplane.git@v0.5.0"`.

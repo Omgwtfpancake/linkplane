@@ -43,13 +43,25 @@ Linkplane is a Python 3.11+ application with no third-party Python dependencies.
 recommended way to install it is **pipx**, which gives it its own environment and puts the
 `linkplane` command on your PATH.
 
-**Arch Linux / Omarchy** (the currently supported platform):
+Choose the section for your operating system and run only that one.
+
+**Arch Linux / Omarchy**
 
 ```sh
 sudo pacman -S --needed python-pipx android-tools android-udev
 pipx install https://github.com/Omgwtfpancake/linkplane/releases/download/v0.5.0/linkplane-0.5.0-py3-none-any.whl
-pipx ensurepath                                        # once; then open a new terminal
 ```
+
+**Ubuntu 24.04**
+
+```sh
+sudo apt update
+sudo apt install pipx adb
+pipx install https://github.com/Omgwtfpancake/linkplane/releases/download/v0.5.0/linkplane-0.5.0-py3-none-any.whl
+```
+
+Then check `linkplane --version`. If the command is not found, run `pipx ensurepath` once
+and open a new terminal.
 
 Current version: **0.5.0, first public alpha** (a GitHub pre-release; not on PyPI yet).
 Details, upgrade and removal: [`docs/install.md`](docs/install.md).

@@ -114,10 +114,15 @@ OFFLINE_GUIDANCE = (
 RECONNECT_GUIDANCE = (
     "The phone disappeared from USB. Reconnect the cable to continue.",
 )
+# Printed under "Try:" when setup completes. Every line must be a command that runs as
+# typed: alpha tester #1 copied a bare `linkplane send` from a placeholder and hit an
+# argument error as their first experience. The notification comes first because it is
+# the moment the phone visibly answers.
+SEND_EXAMPLE_PATH = "/tmp/linkplane-hello.txt"
 NEXT_STEPS = (
-    "linkplane status",
     "linkplane notify \"Hello from Linkplane\"",
-    "linkplane send <file>",
+    "linkplane status",
+    f"echo \"Hello from Linkplane\" > {SEND_EXAMPLE_PATH} && linkplane send {SEND_EXAMPLE_PATH}",
 )
 ADVANCED_HINT = "Wireless ADB or Termux/SSH later: linkplane pair wireless … / linkplane pair ssh …"
 

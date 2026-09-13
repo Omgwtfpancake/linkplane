@@ -7,7 +7,12 @@ listed here).
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+- Setup's completion screen suggests the phone notification first, then `status`, then a
+  complete, copy-pasteable file send (it used to print `linkplane send <file>`, which
+  alpha tester #1 ran as `linkplane send` and got an argument error).
+- Installation instructions list one operating system per section and say to run only
+  one; `pipx ensurepath` is advised only when `linkplane` is not found afterwards.
 
 ## [0.5.0] — 2026-09-13
 

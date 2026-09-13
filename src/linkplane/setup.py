@@ -162,6 +162,7 @@ class SetupSeams:
     daemon_command: Callable[[tuple[str, ...]], list[str]] | None = None
     daemon_status: Callable[[str | None], dict[str, Any] | None] | None = None
     restart_daemon: Callable[[], None] | None = None
+    start_daemon: Callable[[], None] | None = None
     create_client: Callable[..., tuple[Any, str]] | None = None
     load_clients: Callable[[str | None], tuple[Any, ...]] | None = None
     clock: Callable[[], float] | None = None
@@ -253,6 +254,10 @@ def _default_restart_daemon() -> None:
     run_command(["systemctl", "--user", "restart", service.UNIT_NAME], timeout=30)
 
 
+def _default_start_daemon() -> None:
+    run_command(["systemctl", "--user", "start", service.UNIT_NAME], timeout=30)
+
+
 def exec_start_of(unit_text: str) -> list[str] | None:
     """The argv of the unit's `ExecStart=` line, or None when there is none."""
     for line in unit_text.splitlines():
@@ -288,6 +293,7 @@ class _Run:
         self.daemon_command = s.daemon_command or service.daemon_command
         self.daemon_status = s.daemon_status or _default_daemon_status
         self.restart_daemon = s.restart_daemon or _default_restart_daemon
+        self.start_daemon = s.start_daemon or _default_start_daemon
         self.create_client = s.create_client or clients_module.create_client
         self.load_clients = s.load_clients or clients_module.load_clients
         self.clock = s.clock or time.monotonic
@@ -311,6 +317,7 @@ class _Run:
             "running": False,
             "version": None,
             "restarted": False,
+            "started": False,
         }
         self.daemon_was_running = False
         self.config_changed = False
@@ -618,7 +625,17 @@ class _Run:
         if info is None and (not installed or self.options.dry_run):
             self.step(phase, "Daemon running", "skipped", "no daemon is running" + (" (dry run)" if self.options.dry_run and installed else ""), None if self.options.dry_run else "Install it with `linkplane daemon install`, or run `linkplane daemon run`")
             return
+        started_here = False
         if info is None:
+            # The unit exists (installed now or earlier) but nothing answers on the socket:
+            # a fresh install was started by `enable --now`, an existing unit may simply be
+            # inactive (e.g. after `linkplane daemon stop`; found in onboarding run 002).
+            # Starting an installed unit is idempotent, so ask systemd either way.
+            try:
+                self.start_daemon()
+                started_here = True
+            except BridgeError as error:
+                raise self.stop(phase, "Daemon running", f"could not start the service: {error}", "See `systemctl --user status linkplaned` and `journalctl --user -u linkplaned -n 20`", errors.DAEMON_NOT_RUNNING)
             deadline = self.clock() + self.options.daemon_wait
             info = self._wait_for_daemon(deadline, want_version=False)
             if info is None:
@@ -646,7 +663,8 @@ class _Run:
         if version != __version__:
             self.step(phase, "Daemon running", "warning", f"pid {info.get('pid')} runs version {version or 'unknown'}, installed is {__version__}", "Restart it: linkplane daemon stop, then linkplane daemon run (or systemctl --user restart linkplaned)")
             return
-        self.step(phase, "Daemon running", "ok", f"pid {info.get('pid')}, version {version}")
+        self.daemon["started"] = started_here
+        self.step(phase, "Daemon running", "ok", ("started; " if started_here else "") + f"pid {info.get('pid')}, version {version}")
 
     def observation_verification(self) -> None:
         phase = OBSERVATION_VERIFICATION

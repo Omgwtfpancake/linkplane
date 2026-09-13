@@ -168,6 +168,13 @@ class Harness:
     def restart_daemon(self):
         self.daemon.restart()
 
+    start_ok = True
+
+    def start_daemon(self):
+        self.daemon.starts = getattr(self.daemon, "starts", 0) + 1
+        if self.start_ok:
+            self.daemon.running = True
+
     def clock(self):
         return self.now
 
@@ -196,7 +203,7 @@ class Harness:
             adb_factory=self.adb_factory, provider_factory=self.provider_factory,
             install_dependency=self.install_dependency, service_install=self.service_install,
             daemon_command=self.daemon_command, daemon_status=self.daemon_status,
-            restart_daemon=self.restart_daemon, clock=self.clock, sleep=self.sleep,
+            restart_daemon=self.restart_daemon, start_daemon=self.start_daemon, clock=self.clock, sleep=self.sleep,
             ask=self.ask, confirm=self.confirm, choose=self.choose,
         )
 
@@ -603,6 +610,25 @@ class DaemonPhaseTests(unittest.TestCase):
         self.assertEqual(h.daemon.restarts, 1, "a running daemon is restarted once after the profile was added")
         self.assertIn("already installed", by_name(result)["Daemon installed"].summary)
 
+    def test_installed_but_inactive_unit_is_started_not_reported_dead(self):
+        """Onboarding run 002 (Ubuntu 24.04): after `linkplane daemon stop`, a rerun of setup
+        found the unit installed, waited, and stopped with LP-DAEMON-001 instead of starting
+        the service it had installed."""
+        with tempfile.TemporaryDirectory() as directory:
+            h = Harness(directory, daemon=FakeDaemon(running=False))
+            h.service_install(unit_dir=str(h.unit_dir))  # unit already on disk
+            h.daemon.running = False                      # ...but the service is inactive
+            h.service_installs.clear()
+            h.config.write_text(json.dumps({"default_device": "phone", "devices": {"phone": {"device_id": SERIAL}}}), encoding="utf-8")
+            result = h.run()
+
+        self.assertTrue(result.ok, result.failure)
+        self.assertEqual(h.service_installs, [], "no reinstall")
+        self.assertEqual(h.daemon.starts, 1)
+        self.assertTrue(result.daemon["started"])
+        self.assertIn("started; pid 4242", by_name(result)["Daemon running"].summary)
+        self.assertEqual(h.daemon.restarts, 0)
+
     def test_daemon_running_an_older_version_is_restarted_and_verified(self):
         with tempfile.TemporaryDirectory() as directory:
             h = Harness(directory, daemon=FakeDaemon(running=True, version="0.3.0"))
@@ -643,6 +669,7 @@ class DaemonPhaseTests(unittest.TestCase):
                 return result
 
             h.service_install = install_without_starting
+            h.start_ok = False  # systemd accepts the start but the process never answers
             result = h.run()
             config = h.config_json()
 

@@ -9,9 +9,9 @@ listed here).
 
 Nothing yet.
 
-## [0.5.0] — unreleased draft
+## [0.5.0] — 2026-09-13
 
-First public alpha. See `docs/releases/v0.5.0.md`.
+First public alpha (GitHub pre-release). See `docs/releases/v0.5.0.md`.
 
 ### Added
 - `linkplane setup`: guided first run — dependency check, USB Android onboarding with

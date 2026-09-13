@@ -3,9 +3,10 @@
 Linkplane is a Python 3.11+ program with no third-party Python dependencies. It runs on a
 Linux desktop with `systemd --user` and talks to Android phones through `adb`.
 
-**Status:** package version 0.4.0, pre-public-release. There is no PyPI package and no public
-repository yet; install from the release wheel or source tree you were given. Nothing below
-requires root except installing system packages with your distribution's package manager.
+**Status:** version 0.5.0, the first public alpha, published as a GitHub pre-release with a
+wheel and an sdist. There is no PyPI package yet, so installs use the release wheel URL.
+Nothing below requires root except installing system packages with your distribution's
+package manager.
 
 ## Supported platforms
 
@@ -46,15 +47,16 @@ needs root itself.
 ## Install
 
 ```sh
-pipx install <artifact>       # a Linkplane wheel (linkplane-0.4.0-py3-none-any.whl) or the source tree
+pipx install https://github.com/Omgwtfpancake/linkplane/releases/download/v0.5.0/linkplane-0.5.0-py3-none-any.whl
 pipx ensurepath               # once, if pipx says ~/.local/bin is not on your PATH; then open a new terminal
-linkplane --version           # linkplane 0.4.0
+linkplane --version           # linkplane 0.5.0
 ```
 
-`which linkplane` should print `~/.local/bin/linkplane`. Once Linkplane is published, the
-artifact becomes the package name (`pipx install linkplane`); until then use the wheel or
-source you received. Other isolation tools that produce a console script on PATH (for
-example `uv tool install`) work the same way but are not the documented path.
+`which linkplane` should print `~/.local/bin/linkplane`. The same result from the tagged
+source, if you prefer (needs `git`): `pipx install "git+https://github.com/Omgwtfpancake/linkplane.git@v0.5.0"`.
+Once Linkplane is on PyPI the artifact becomes the package name (`pipx install linkplane`).
+Other isolation tools that produce a console script on PATH (for example `uv tool install`)
+work the same way but are not the documented path.
 
 Do not `pip install` into the system Python: modern distributions refuse it, and Linkplane's
 service unit needs a stable executable path, which pipx provides.
@@ -104,7 +106,7 @@ authoritative list is the dependency catalogue in `src/linkplane/dependencies.py
 ## Upgrade
 
 ```sh
-pipx install --force <newer artifact>     # until a PyPI release exists
+pipx install --force https://github.com/Omgwtfpancake/linkplane/releases/download/vX.Y.Z/linkplane-X.Y.Z-py3-none-any.whl   # the newer release wheel
 pipx upgrade linkplane                    # once installs come from PyPI
 linkplane setup                           # verifies, and restarts the service if it runs an older version
 ```

@@ -47,13 +47,12 @@ recommended way to install it is **pipx**, which gives it its own environment an
 
 ```sh
 sudo pacman -S --needed python-pipx android-tools android-udev
-pipx install <Linkplane release artifact or source>   # see docs/install.md
+pipx install https://github.com/Omgwtfpancake/linkplane/releases/download/v0.5.0/linkplane-0.5.0-py3-none-any.whl
 pipx ensurepath                                        # once; then open a new terminal
 ```
 
-Linkplane has not yet been published to PyPI or a public repository; until it is, install it
-from the release wheel or source tree you were given, exactly as described in
-[`docs/install.md`](docs/install.md). Current package version: **0.4.0, pre-public-release**.
+Current version: **0.5.0, first public alpha** (a GitHub pre-release; not on PyPI yet).
+Details, upgrade and removal: [`docs/install.md`](docs/install.md).
 
 ## Connect your Android phone
 

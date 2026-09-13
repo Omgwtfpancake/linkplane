@@ -11,8 +11,8 @@ requires root except installing system packages with your distribution's package
 
 | Status | Platform | Meaning |
 |---|---|---|
-| **Supported** | Arch Linux, including Omarchy | verified with a real phone by the clean-machine procedure |
-| **Validation target** | Ubuntu 24.04 LTS | expected to work; not yet verified end to end, so not called supported |
+| **Supported** | Arch Linux, including Omarchy | verified with a real phone by the clean-machine procedure (`docs/testing/onboarding-run-001.md`) |
+| **Supported** | Ubuntu 24.04 LTS | the full clean-machine lifecycle on a fresh VM with a real phone: public-source pipx install, USB Android onboarding, daemon install and start, device observation, first useful action, real reboot and persistence, setup rerun, uninstall, bounded purge, pipx removal (`docs/testing/onboarding-run-002.md`) |
 | Expected to work | other current systemd-based distributions (Debian 12+, Fedora 40+, …) with Python ≥ 3.11 and an `adb` package | untested |
 | Not supported | distributions without `systemd --user` (one-shot commands work; `linkplane daemon run` needs your own supervisor), WSL, macOS, Windows | |
 
@@ -30,6 +30,13 @@ Arch / Omarchy, in one line:
 
 ```sh
 sudo pacman -S --needed python-pipx android-tools android-udev
+```
+
+Ubuntu 24.04, in one line (install `adb` before plugging the phone in, so its udev rules
+apply to the device):
+
+```sh
+sudo apt update && sudo apt install pipx adb
 ```
 
 `linkplane setup` detects a missing `adb`, shows the exact command for your package manager,

@@ -885,7 +885,7 @@ done; what is missing is the udev detection, two dependency plans, a composed `s
 - Alternative's consequence: the README's only install line would be Arch-only, and the
   first non-Arch tester has nothing.
 
-**3. Initial supported distro set** — *Decided: A; Ubuntu 24.04 is the validation target and becomes supported only after a complete clean-machine test.*
+**3. Initial supported distro set** — *Decided: A; Ubuntu 24.04 was the validation target and was promoted to Supported on 2026-09-13 after the tier-1 clean-machine run (`docs/testing/onboarding-run-002.md`).*
 - A: Arch Linux / Omarchy only (tested with a phone); Ubuntu 24.04, Debian 12, Fedora
   "expected to work".
 - B: Arch + Ubuntu 24.04 both *supported*, which requires a phone run in an Ubuntu VM with

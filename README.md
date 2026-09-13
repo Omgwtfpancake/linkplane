@@ -108,12 +108,13 @@ never uploads anything on its own.
 | Status | Platform |
 |---|---|
 | **Supported** | Arch Linux, including Omarchy (verified with a real phone) |
-| **Validation target** | Ubuntu 24.04 LTS (not yet verified end to end) |
+| **Supported** | Ubuntu 24.04 LTS (full clean-machine lifecycle verified on a fresh VM with a real phone: public-source pipx install, USB onboarding, daemon persistence across a reboot, rerun, uninstall, purge, removal) |
 | Expected to work | other current systemd-based Linux distributions with Python 3.11+ and `adb` |
 | Not supported | distributions without `systemd --user` (one-shot commands still work; the daemon needs another supervisor), WSL, macOS, Windows |
 
 "Supported" is earned by the clean-machine procedure in
-[`docs/clean-machine-onboarding.md`](docs/clean-machine-onboarding.md).
+[`docs/clean-machine-onboarding.md`](docs/clean-machine-onboarding.md); the evidence for each
+platform is under [`docs/testing/`](docs/testing/).
 
 ## Documentation
 

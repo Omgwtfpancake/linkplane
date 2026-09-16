@@ -25,9 +25,17 @@ PRIVILEGED = ("run",)
 class Step:
     action: str
     options: dict[str, Any] = field(default_factory=dict)
+    # Optional per-step `if`: the same flat condition map as a rule's `if`, tested against
+    # the firing context when the step is reached (the event's data plus every earlier
+    # step's outcome data), so `{"downloaded": {"above": 0}}` gates a notification on a
+    # backup's result. Unmet → the step is skipped, which is not a failure.
+    conditions: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"action": self.action, **self.options}
+        record = {"action": self.action, **self.options}
+        if self.conditions:
+            record["if"] = dict(self.conditions)
+        return record
 
 
 @dataclass(frozen=True)
@@ -42,11 +50,16 @@ class Automation:
     cooldown_seconds: float = 0.0
     on_initial: bool = False
     continue_on_error: bool = False
+    # The built-in preset this rule was generated from (`linkplane.presets`), or None for a
+    # hand-written rule. Informational: the engine runs preset rules like any other.
+    preset: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         record = asdict(self)
         record["if"] = record.pop("conditions")
         record["do"] = [step.to_dict() for step in self.do]
+        if record["preset"] is None:
+            del record["preset"]  # hand-written rules keep their original shape
         return record
 
     @property
@@ -59,6 +72,16 @@ class Automation:
 
 def _invalid(name: str, message: str) -> errors.LinkplaneError:
     return errors.LinkplaneError(errors.CONFIG_INVALID, f"automation {name!r}: {message}")
+
+
+def _parse_conditions(name: str, conditions: Any, where: str) -> dict[str, Any]:
+    if not isinstance(conditions, Mapping):
+        raise _invalid(name, f"{where} must be an object")
+    for key, value in conditions.items():
+        if isinstance(value, Mapping):
+            if len(value) != 1 or next(iter(value)) not in OPERATORS:
+                raise _invalid(name, f"condition {key!r} must be a value or one of {OPERATORS}")
+    return dict(conditions)
 
 
 def parse_automation(record: Mapping[str, Any]) -> Automation:
@@ -78,14 +101,9 @@ def parse_automation(record: Mapping[str, Any]) -> Automation:
         action = str(raw["action"])
         if action not in ACTIONS:
             raise _invalid(name, f"unknown action {action!r}")
-        steps.append(Step(action, {k: v for k, v in raw.items() if k != "action"}))
-    conditions = record.get("if") or {}
-    if not isinstance(conditions, Mapping):
-        raise _invalid(name, "'if' must be an object")
-    for key, value in conditions.items():
-        if isinstance(value, Mapping):
-            if len(value) != 1 or next(iter(value)) not in OPERATORS:
-                raise _invalid(name, f"condition {key!r} must be a value or one of {OPERATORS}")
+        step_conditions = _parse_conditions(name, raw.get("if") or {}, f"'if' on the {action!r} step")
+        steps.append(Step(action, {k: v for k, v in raw.items() if k not in ("action", "if")}, step_conditions))
+    conditions = _parse_conditions(name, record.get("if") or {}, "'if'")
     allow = record.get("allow") or ()
     if not isinstance(allow, (list, tuple)) or any(a not in ACTIONS for a in allow):
         raise _invalid(name, "'allow' must list known actions")
@@ -93,6 +111,9 @@ def parse_automation(record: Mapping[str, Any]) -> Automation:
         cooldown = float(record.get("cooldown_seconds", 0) or 0)
     except (TypeError, ValueError):
         raise _invalid(name, "'cooldown_seconds' must be a number") from None
+    preset = record.get("preset")
+    if preset is not None and not isinstance(preset, str):
+        raise _invalid(name, "'preset' must be a string")
     return Automation(
         name=name,
         when=str(when),
@@ -104,6 +125,7 @@ def parse_automation(record: Mapping[str, Any]) -> Automation:
         cooldown_seconds=cooldown,
         on_initial=bool(record.get("on_initial", False)),
         continue_on_error=bool(record.get("continue_on_error", False)),
+        preset=preset,
     )
 
 
@@ -247,6 +269,10 @@ class Engine:
         context = event_context(event)
         outcomes: list[StepOutcome] = []
         for step in rule.do:
+            unmet = [key for key, expected in step.conditions.items() if not condition_holds(context.get(key), expected)]
+            if unmet:
+                outcomes.append(StepOutcome(step.action, True, f"condition not met: {', '.join(unmet)}", skipped=True))
+                continue
             outcome = self.run_step(step, event, context, rule)
             outcomes.append(outcome)
             context.update(outcome.data)

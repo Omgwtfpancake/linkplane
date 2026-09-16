@@ -144,6 +144,45 @@ class EngineTests(unittest.TestCase):
         self.assertFalse(first[0].outcomes[0].skipped)
         self.assertFalse(third[0].outcomes[0].skipped)
 
+    def test_step_condition_over_an_earlier_result_skips_without_failing(self):
+        def backup_runner(step, event, context, automation):
+            self.calls.append((automation.name, step.action, dict(context)))
+            return StepOutcome(step.action, True, "ran", {"downloaded": event.data["copied"]})
+
+        steps = [{"action": "backup"}, {"action": "notify-desktop", "message": "{downloaded} new", "if": {"downloaded": {"above": 0}}}]
+        engine = Engine([rule(when="device.connected", do=steps)], backup_runner)
+        nothing_new = engine.handle(Event("device.connected", "phone", data={"copied": 0}))[0]
+        self.assertEqual([call[1] for call in self.calls], ["backup"])
+        self.assertTrue(nothing_new.ok, "an unmet step condition is not a failure")
+        self.assertFalse(nothing_new.skipped, "the backup ran, so the firing is not a skip")
+        self.assertTrue(nothing_new.outcomes[1].skipped)
+        self.assertEqual(nothing_new.outcomes[1].detail, "condition not met: downloaded")
+        self.calls.clear()
+        something_new = engine.handle(Event("device.connected", "phone", data={"copied": 3}))[0]
+        self.assertEqual([call[1] for call in self.calls], ["backup", "notify-desktop"])
+        self.assertEqual(self.calls[1][2]["downloaded"], 3)
+        self.assertFalse(something_new.outcomes[1].skipped)
+
+    def test_step_condition_is_not_passed_to_the_action_and_round_trips(self):
+        parsed = rule(do=[{"action": "notify-desktop", "message": "m", "if": {"downloaded": {"above": 0}}}])
+        self.assertEqual(parsed.do[0].options, {"message": "m"})
+        self.assertEqual(parsed.do[0].conditions, {"downloaded": {"above": 0}})
+        self.assertEqual(parsed.to_dict()["do"], [{"action": "notify-desktop", "message": "m", "if": {"downloaded": {"above": 0}}}])
+        self.assertEqual(parse_automation(parsed.to_dict()), parsed)
+        with self.assertRaises(errors.LinkplaneError) as raised:
+            rule(do=[{"action": "notify-desktop", "if": {"downloaded": {"gt": 0}}}])
+        self.assertIn("must be a value or one of", str(raised.exception))
+        with self.assertRaises(errors.LinkplaneError):
+            rule(do=[{"action": "notify-desktop", "if": "downloaded"}])
+
+    def test_preset_marker_round_trips_and_hand_written_rules_keep_their_shape(self):
+        self.assertNotIn("preset", rule().to_dict())
+        marked = rule(preset="photo-backup")
+        self.assertEqual(marked.preset, "photo-backup")
+        self.assertEqual(parse_automation(marked.to_dict()), marked)
+        with self.assertRaises(errors.LinkplaneError):
+            rule(preset=7)
+
     def test_non_matching_event_yields_no_firing(self):
         self.assertEqual(self.engine(rule()).handle(Event("battery.ok", "phone")), [])
 

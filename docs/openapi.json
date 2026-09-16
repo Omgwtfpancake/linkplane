@@ -1255,6 +1255,7 @@
                   "LP-REQUEST-001",
                   "LP-RESOURCE-001",
                   "LP-STATE-001",
+                  "LP-STORAGE-001",
                   "LP-TIMEOUT-001"
                 ]
               },
@@ -2359,6 +2360,7 @@
     "LP-REQUEST-001": 400,
     "LP-RESOURCE-001": 404,
     "LP-STATE-001": 409,
+    "LP-STORAGE-001": 507,
     "LP-TIMEOUT-001": 504
   },
   "x-sensitive-keys": [

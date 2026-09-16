@@ -720,6 +720,7 @@ entries in `core/errors.py` (with titles; the pinned set may grow, never shrink)
 | cancelled (immediate action interrupted by daemon stop) | `LP-CANCELLED-001` | 503 | the server is going away |
 | configuration missing / invalid | `LP-CONFIG-001` / `-002` | 500 | server misconfigured; hints point at `linkplane doctor` |
 | daemon protocol | `LP-DAEMON-003` | 500 | |
+| backup destination full | `LP-STORAGE-001` **new (v0.6 development)** | 507 | reported in the failed job's `error` |
 | daemon not running / already running | `LP-DAEMON-001` / `-002` | — | cannot occur over HTTP (the API is the daemon); connection refused is the signal |
 | internal failure | `LP-INTERNAL-001` **new** | 500 | |
 | API listener could not bind | `LP-API-001` **new** | — (start-up log + audit `daemon.started` details) | not an HTTP response |

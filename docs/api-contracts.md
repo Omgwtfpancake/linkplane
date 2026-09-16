@@ -673,8 +673,22 @@ class BackupResult:
     skipped: int
     pending_files: tuple[str, ...]     # relative paths
     dry_run: bool
+    # additive (v0.6 development, unreleased)
+    preserved: tuple[str, ...] = ()    # existing local files with no manifest record that were not overwritten
+    adopted: int = 0                   # such files byte-identical to the phone's, now recorded instead of re-downloaded
+    downloaded_bytes: int = 0
+    verified_bytes: int = 0            # bytes re-hashed to confirm already backed-up files
+    discovery_seconds: float = 0.0     # measurement for the unchanged-file strategy
+    unchanged_check_seconds: float = 0.0
+    duration_seconds: float = 0.0
     # .to_dict()
 ```
+
+Safety (v0.6 development): before downloading anything, `backup_photos` checks that the
+destination's filesystem has room for every pending file plus the largest one replacing an
+existing local copy, and otherwise fails with `operation_failed` / `LP-STORAGE-001` without
+creating the destination. It never overwrites a local file that no manifest entry records,
+and refuses to write through a symbolic link below the destination root.
 
 `MANIFEST_SCHEMA_VERSION` versions the on-disk `.linkplane-manifest.json` file this module
 writes into the backup destination — a completely separate version number from
@@ -696,7 +710,8 @@ computed for real.
 
 - Error codes: `invalid_request` (source not an absolute Android path, contains a control
   character, or resolves outside itself via `..`), `transport_unavailable` (no ADB device
-  selectable), `operation_failed` (discovery/stat/checksum/pull/manifest I/O failure),
+  selectable), `operation_failed` (discovery/stat/checksum/pull/manifest I/O failure;
+  `error_code` `LP-STORAGE-001` when the destination lacks free space),
   `cancelled` (the `cancel` token was set).
 - Progress events: `("backup", "discovering")`, `("backup", "started")`, `("backup",
   "item_pending")` (dry run only), `("backup", "item_started")`, `("backup", "item_completed")`,

@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import shlex
+import shutil
+import time
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -19,6 +21,7 @@ from linkplane.operations import (
     is_cancelled,
     report_progress,
 )
+from linkplane.core import errors
 from linkplane.transfer import format_bytes
 from linkplane.transports import AdbTransport, BridgeError
 
@@ -60,6 +63,19 @@ class BackupResult:
     skipped: int
     pending_files: tuple[str, ...]
     dry_run: bool
+    # Additive (v0.6). `preserved`: files already in the destination that no manifest
+    # records and whose content does not match the phone's, left untouched rather than
+    # overwritten (on a dry run: every such file, unchecked). `adopted`: such files that
+    # were byte-identical to the phone's and are now recorded instead of downloaded again.
+    preserved: tuple[str, ...] = ()
+    adopted: int = 0
+    downloaded_bytes: int = 0
+    # Measurement for the unchanged-file strategy (docs/v0.6-direction.md §3): bytes and
+    # seconds spent re-verifying already backed-up files, and the phases around it.
+    verified_bytes: int = 0
+    discovery_seconds: float = 0.0
+    unchanged_check_seconds: float = 0.0
+    duration_seconds: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -189,6 +205,31 @@ def is_unchanged(local_path: Path, remote: RemoteFile, record: Any) -> bool:
     return isinstance(checksum, str) and sha256_file(local_path) == checksum
 
 
+def free_bytes(path: Path) -> int:
+    """Free space on the filesystem that holds `path`, or would once it is created."""
+    probe = path
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    return shutil.disk_usage(probe).free
+
+
+def required_bytes(pending: list[tuple[RemoteFile, Path]]) -> int:
+    """What a run needs free: every pending file, plus the largest one that replaces an
+    existing local copy, because the verified temporary sits beside it until the swap."""
+    replacing = [remote.size for remote, local in pending if local.exists()]
+    return sum(remote.size for remote, _local in pending) + max(replacing, default=0)
+
+
+def ensure_inside(destination: Path, local_path: Path) -> None:
+    """Refuse to write through a symbolic link anywhere below the destination root, so a
+    link planted in the backup folder can never redirect a download elsewhere."""
+    current = destination
+    for part in local_path.relative_to(destination).parts:
+        current = current / part
+        if current.is_symlink():
+            raise BridgeError(f"refusing to write through a symbolic link in the backup destination: {current}")
+
+
 def pull_verified(
     transport: AdbTransport,
     remote: RemoteFile,
@@ -253,6 +294,7 @@ def _backup_selected(
     serial = transport.serial
     if serial is None:
         raise BridgeError("unable to determine the ADB device serial")
+    started_clock = time.monotonic()
     source = str(validate_source(source))
     report_progress(
         progress,
@@ -265,18 +307,28 @@ def _backup_selected(
     )
     check_cancelled(cancel)
     remote_files = discover_remote_files(transport, source)
+    discovery_seconds = time.monotonic() - started_clock
     check_cancelled(cancel)
     manifest_path = destination / MANIFEST_NAME
     manifest = load_manifest(manifest_path, serial, source)
     records = manifest["files"]
     pending: list[tuple[RemoteFile, Path]] = []
+    untracked: list[tuple[RemoteFile, Path]] = []
     skipped = 0
+    verified_bytes = 0
+    check_clock = time.monotonic()
     for remote in remote_files:
         local_path = destination.joinpath(*PurePosixPath(remote.relative_path).parts)
-        if is_unchanged(local_path, remote, records.get(remote.relative_path)):
+        record = records.get(remote.relative_path)
+        if is_unchanged(local_path, remote, record):
             skipped += 1
+            verified_bytes += remote.size
+        elif record is None and (local_path.exists() or local_path.is_symlink()):
+            # Not written by Linkplane: never overwrite it (checked, and maybe adopted, below).
+            untracked.append((remote, local_path))
         else:
             pending.append((remote, local_path))
+    unchanged_check_seconds = time.monotonic() - check_clock
 
     model = device.get("model", "Android device").replace("_", " ")
     pending_size = sum(remote.size for remote, _local in pending)
@@ -293,6 +345,10 @@ def _backup_selected(
         skipped=skipped,
         pending_files=tuple(remote.relative_path for remote, _local in pending),
         dry_run=dry_run,
+        preserved=tuple(remote.relative_path for remote, _local in untracked),
+        verified_bytes=verified_bytes,
+        discovery_seconds=round(discovery_seconds, 3),
+        unchanged_check_seconds=round(unchanged_check_seconds, 3),
     )
     report_progress(
         progress,
@@ -332,8 +388,21 @@ def _backup_selected(
                 details=result.to_dict(),
             ),
         )
-        return result
+        return replace(result, duration_seconds=round(time.monotonic() - started_clock, 3))
 
+    required = required_bytes(pending)
+    if required:
+        try:
+            available = free_bytes(destination)
+        except OSError as error:
+            raise BridgeError(f"unable to check free space for {destination}: {error}") from error
+        if required > available:
+            raise errors.LinkplaneError(
+                errors.STORAGE_INSUFFICIENT,
+                f"not enough free space in {destination}: this backup needs {format_bytes(required)}, "
+                f"{format_bytes(available)} is available; nothing was downloaded",
+                ("free up space on this computer, or back up to another folder",),
+            )
     try:
         destination.mkdir(parents=True, exist_ok=True)
     except OSError as error:
@@ -369,6 +438,7 @@ def _backup_selected(
                 details={"size": remote.size},
             ),
         )
+        ensure_inside(destination, local_path)
         checksum = pull_verified(transport, remote, local_path)
         records[remote.relative_path] = {
             "size": remote.size,
@@ -390,9 +460,35 @@ def _backup_selected(
                 details={"size": remote.size, "sha256": checksum},
             ),
         )
+    adopted = 0
+    preserved: list[str] = []
+    for remote, local_path in untracked:
+        check_cancelled(cancel)
+        if local_path.is_symlink() or not local_path.is_file():
+            preserved.append(remote.relative_path)
+            continue
+        checksum = remote_sha256(transport, remote.path)
+        if sha256_file(local_path) != checksum:
+            preserved.append(remote.relative_path)
+            continue
+        records[remote.relative_path] = {
+            "size": remote.size,
+            "modified": remote.modified,
+            "sha256": checksum,
+            "backed_up_at": datetime.now(timezone.utc).isoformat(),
+        }
+        save_manifest(manifest_path, manifest)
+        adopted += 1
     if not manifest_path.exists():
         save_manifest(manifest_path, manifest)
-    result = replace(result, downloaded=len(pending))
+    result = replace(
+        result,
+        downloaded=len(pending),
+        downloaded_bytes=result.pending_bytes,
+        adopted=adopted,
+        preserved=tuple(preserved),
+        duration_seconds=round(time.monotonic() - started_clock, 3),
+    )
     report_progress(
         progress,
         ProgressEvent(
@@ -439,6 +535,8 @@ def backup_photos(
         )
     except OperationCancelled as error:
         return OperationResult.failure("cancelled", str(error))
+    except errors.LinkplaneError as error:
+        return OperationResult.failure("operation_failed", str(error), error_code=error.code, hints=error.hints)
     except BridgeError as error:
         return OperationResult.failure("operation_failed", str(error))
 
@@ -456,6 +554,8 @@ def render_backup_progress(event: ProgressEvent) -> None:
             f"({format_bytes(result['pending_bytes'])})"
         )
         print(f"Verified    {result['skipped']} unchanged")
+        if result.get("preserved"):
+            print(f"Existing    {len(result['preserved'])} file(s) Linkplane did not create; never overwritten")
     elif event.phase == "item_pending":
         print(f"Would pull  {event.item}")
     elif event.phase == "item_started":
@@ -473,6 +573,10 @@ def render_backup_progress(event: ProgressEvent) -> None:
             f"Completed   {result['downloaded']} downloaded, "
             f"{result['skipped']} unchanged"
         )
+        if result.get("adopted"):
+            print(f"Recorded    {result['adopted']} existing identical file(s)")
+        if result.get("preserved"):
+            print(f"Kept        {len(result['preserved'])} existing different file(s) untouched")
 
 
 def backup(arguments: Any) -> int:
@@ -490,5 +594,7 @@ def backup(arguments: Any) -> int:
     if result.error is not None:
         if result.error.code == "cancelled":
             raise OperationCancelled(result.error.message)
+        if result.error.error_code is not None:
+            raise errors.LinkplaneError(result.error.error_code, result.error.message, result.error.hints)
         raise BridgeError(result.error.message)
     return 0

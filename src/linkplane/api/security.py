@@ -53,6 +53,7 @@ STATUS_FOR_CODE: dict[str, int] = {
     errors.DAEMON_ALREADY_RUNNING: 503,
     errors.API_BIND_FAILED: 503,   # never a response body in practice (start-up only); mapped so no code is accidental
     errors.TIMEOUT: 504,
+    errors.STORAGE_INSUFFICIENT: 507,  # the computer-side destination is full (backup)
 }
 RETRY_AFTER_CODES = frozenset({errors.CONNECT_UNREACHABLE, errors.CONNECT_NO_DEVICE, errors.AUTH_UNAUTHORIZED_DEVICE})
 INTERNAL_MESSAGE = "internal error; see the daemon log"

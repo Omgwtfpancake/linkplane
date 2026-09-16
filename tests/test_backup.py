@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from linkplane.backup import (
     BackupRequest,
+    _backup_selected,
     MANIFEST_NAME,
     backup_photos,
     backup_selected,
@@ -14,7 +15,42 @@ from linkplane.backup import (
     load_manifest,
     validate_source,
 )
+from linkplane.core import errors
 from linkplane.transports import AdbTransport, BridgeError
+
+
+class FakePhone:
+    """A scripted phone for the backup service: files by relative path under the camera
+    folder; every adb call is recorded and anything unexpected fails the test."""
+
+    SOURCE = "/sdcard/DCIM/Camera"
+
+    def __init__(self, files):
+        self.files = dict(files)
+        self.pulls = []
+        self.calls = []
+
+    def run(self, command, **_kwargs):
+        self.calls.append(command)
+        if command[:4] == ["adb", "-s", "serial-1", "shell"]:
+            script = command[-1]
+            if script.startswith("find "):
+                return "".join(f"{self.SOURCE}/{name}\0" for name in sorted(self.files))
+            for name, content in self.files.items():
+                if script.startswith("stat ") and f"{self.SOURCE}/{name}" in script:
+                    return f"{len(content)}\t1725000000\n"
+                if script.startswith("sha256sum ") and f"{self.SOURCE}/{name}" in script:
+                    return f"{hashlib.sha256(content).hexdigest()}  {self.SOURCE}/{name}\n"
+        if command[:5] == ["adb", "-s", "serial-1", "pull", "-a"]:
+            name = command[-2][len(self.SOURCE) + 1:]
+            self.pulls.append(name)
+            Path(command[-1]).write_bytes(self.files[name])
+            return ""
+        raise AssertionError(command)
+
+    def backup(self, destination, **kwargs):
+        return _backup_selected(AdbTransport("serial-1", self.run), {"model": "Phone"}, self.SOURCE, destination,
+                                dry_run=kwargs.pop("dry_run", False), **kwargs)
 
 
 class BackupTests(unittest.TestCase):
@@ -203,6 +239,113 @@ class BackupTests(unittest.TestCase):
                 dry_run=True,
             )
             self.assertFalse(destination.exists())
+
+    def test_insufficient_free_space_refuses_before_writing_anything(self):
+        phone = FakePhone({"a.jpg": b"x" * 600, "b.jpg": b"y" * 500})
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "backup"
+            with patch("linkplane.backup.free_bytes", return_value=1000) as free:
+                with self.assertRaises(errors.LinkplaneError) as raised:
+                    phone.backup(destination)
+            self.assertEqual(raised.exception.code, errors.STORAGE_INSUFFICIENT)
+            self.assertIn("nothing was downloaded", str(raised.exception))
+            self.assertFalse(destination.exists(), "the destination is not even created")
+            free.assert_called_once_with(destination)
+        self.assertEqual(phone.pulls, [])
+
+    def test_free_space_is_the_pending_bytes_plus_the_largest_replaced_file(self):
+        phone = FakePhone({"a.jpg": b"x" * 600, "b.jpg": b"y" * 500})
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "backup"
+            with patch("linkplane.backup.free_bytes", return_value=1100):
+                result = phone.backup(destination)  # exactly enough for two new files
+            self.assertEqual((result.downloaded, result.downloaded_bytes), (2, 1100))
+            phone.files["b.jpg"] = b"z" * 400  # changed on the phone: replaces a local copy
+            phone.pulls.clear()
+            with patch("builtins.print"), patch("linkplane.backup.free_bytes", return_value=799):
+                with self.assertRaises(errors.LinkplaneError):
+                    phone.backup(destination)  # needs 400 + 400 beside the old copy
+            with patch("linkplane.backup.free_bytes", return_value=800):
+                self.assertEqual(phone.backup(destination).downloaded, 1)
+        self.assertEqual(phone.pulls, ["b.jpg"])
+
+    def test_nothing_pending_needs_no_free_space_check(self):
+        phone = FakePhone({"a.jpg": b"x"})
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "backup"
+            phone.backup(destination)
+            with patch("linkplane.backup.free_bytes", side_effect=AssertionError("not needed")):
+                result = phone.backup(destination)
+        self.assertEqual((result.downloaded, result.skipped, result.verified_bytes), (0, 1, 1))
+
+    def test_backup_service_reports_free_space_failure_with_its_code(self):
+        with patch("linkplane.backup.AdbTransport") as transport_class, \
+                patch("linkplane.backup.free_bytes", return_value=0), tempfile.TemporaryDirectory() as directory:
+            phone = FakePhone({"a.jpg": b"x"})
+            transport_class.return_value = AdbTransport("serial-1", phone.run)
+            transport_class.return_value.select_device = lambda: {"model": "Phone"}
+            result = backup_photos(BackupRequest(destination=str(Path(directory) / "b")))
+        self.assertEqual((result.error.code, result.error.error_code), ("operation_failed", errors.STORAGE_INSUFFICIENT))
+        self.assertTrue(result.error.hints)
+
+    def test_existing_files_linkplane_did_not_create_are_never_overwritten(self):
+        phone = FakePhone({"same.jpg": b"identical", "clash.jpg": b"phone version", "new.jpg": b"new"})
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "backup"
+            destination.mkdir()
+            (destination / "same.jpg").write_bytes(b"identical")
+            (destination / "clash.jpg").write_bytes(b"the user's own file")
+            preview = phone.backup(destination, dry_run=True)
+            result = phone.backup(destination)
+            again = phone.backup(destination)
+            clash = (destination / "clash.jpg").read_bytes()
+            manifest = json.loads((destination / MANIFEST_NAME).read_text(encoding="utf-8"))
+
+        self.assertEqual(preview.preserved, ("clash.jpg", "same.jpg"))
+        self.assertEqual(preview.pending_files, ("new.jpg",))
+        self.assertEqual(clash, b"the user's own file")
+        self.assertEqual(phone.pulls, ["new.jpg"])
+        self.assertEqual((result.downloaded, result.adopted, result.preserved), (1, 1, ("clash.jpg",)))
+        self.assertIn("same.jpg", manifest["files"])
+        self.assertNotIn("clash.jpg", manifest["files"])
+        self.assertEqual((again.skipped, again.downloaded, again.preserved), (2, 0, ("clash.jpg",)))
+
+    def test_a_symbolic_link_in_the_destination_never_redirects_a_download(self):
+        phone = FakePhone({"Trip/photo.jpg": b"photo"})
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "backup"
+            elsewhere = Path(directory) / "elsewhere"
+            destination.mkdir()
+            elsewhere.mkdir()
+            (destination / "Trip").symlink_to(elsewhere, target_is_directory=True)
+            with self.assertRaisesRegex(BridgeError, "symbolic link"):
+                phone.backup(destination)
+            self.assertEqual(list(elsewhere.iterdir()), [])
+        self.assertEqual(phone.pulls, [])
+
+    def test_backup_is_additive_phone_deletions_never_delete_local_copies(self):
+        phone = FakePhone({"a.jpg": b"a", "b.jpg": b"b"})
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "backup"
+            phone.backup(destination)
+            del phone.files["a.jpg"]
+            result = phone.backup(destination)
+            self.assertEqual((destination / "a.jpg").read_bytes(), b"a")
+            self.assertEqual((result.discovered, result.skipped, result.downloaded), (1, 1, 0))
+        destructive = [call for call in phone.calls if call[:4] == ["adb", "-s", "serial-1", "shell"]
+                       and any(word in call[-1] for word in ("rm ", "mv ", "unlink"))]
+        self.assertEqual(destructive, [], "backup never runs a destructive command on the phone")
+
+    def test_result_carries_measurements_for_the_unchanged_file_strategy(self):
+        phone = FakePhone({"a.jpg": b"a" * 10, "b.jpg": b"b" * 20})
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "backup"
+            phone.backup(destination)
+            result = phone.backup(destination).to_dict()
+        for key in ("discovery_seconds", "unchanged_check_seconds", "duration_seconds"):
+            self.assertIsInstance(result[key], float)
+            self.assertGreaterEqual(result[key], 0.0)
+        self.assertEqual((result["skipped"], result["verified_bytes"]), (2, 30))
 
     def test_manifest_cannot_be_reused_for_another_device(self):
         with tempfile.TemporaryDirectory() as directory:

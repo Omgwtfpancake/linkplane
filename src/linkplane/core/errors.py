@@ -48,6 +48,8 @@ CLIENT_FORBIDDEN = "LP-CLIENT-002"
 RESOURCE_NOT_FOUND = "LP-RESOURCE-001"
 INTERNAL = "LP-INTERNAL-001"
 API_BIND_FAILED = "LP-API-001"
+# The computer-side destination cannot hold what an operation is about to write (v0.6).
+STORAGE_INSUFFICIENT = "LP-STORAGE-001"
 
 # Human titles for the friendly CLI rendering, keyed by code.
 TITLES = {
@@ -79,6 +81,7 @@ TITLES = {
     RESOURCE_NOT_FOUND: "No such resource.",
     INTERNAL: "Linkplane hit an internal error.",
     API_BIND_FAILED: "The local API could not start.",
+    STORAGE_INSUFFICIENT: "Not enough free space on this computer.",
 }
 
 # The pre-existing short `OperationError.code` categories (frozen in docs/api-contracts.md)

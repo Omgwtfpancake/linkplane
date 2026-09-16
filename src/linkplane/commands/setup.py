@@ -16,6 +16,7 @@ SECTION = {
     setup_module.DEVICE_DETECTION: "Connect your Android phone with USB.",
     setup_module.DAEMON_INSTALLATION: "Setting up Linkplane...",
     setup_module.FIRST_USE_VERIFICATION: "Verifying connection...",
+    setup_module.AUTOMATIC_BACKUP: "Automatic photo backup...",
     setup_module.API_CLIENT: "API client...",
 }
 

@@ -16,6 +16,7 @@ from linkplane.operations import CancellationToken, OperationCancelled
 from linkplane.providers.base import BatteryReading, PingResult
 from linkplane.setup import (
     API_CLIENT,
+    AUTOMATIC_BACKUP,
     COMPLETE,
     DAEMON_INSTALLATION,
     DAEMON_START,
@@ -94,6 +95,7 @@ class Harness:
         self.config = self.directory / "config.json"
         self.unit_dir = self.directory / "units"
         self.clients = self.directory / "clients.json"
+        self.automations = self.directory / "automations.json"
         self.tools = set(tools)
         # A list of device lists; each poll pops the next, the last one repeats.
         self.devices = list(devices) if devices is not None else [[device()]]
@@ -209,6 +211,7 @@ class Harness:
 
     def options(self, **overrides):
         base = dict(config_path=str(self.config), unit_dir=str(self.unit_dir), clients_path=str(self.clients),
+                    automations_path=str(self.automations), backup_destination=str(self.directory / "Photos"),
                     socket_path=str(self.directory / "daemon.sock"), device_wait=10.0, daemon_wait=5.0,
                     observe_wait=5.0, poll_interval=1.0, interactive=True)
         base.update(overrides)
@@ -240,13 +243,15 @@ class SetupHappyPathTests(unittest.TestCase):
         self.assertTrue(result.ok, result.failure)
         self.assertEqual(result.status, "complete")
         expected = [PREFLIGHT, DEPENDENCIES, DEVICE_DETECTION, DEVICE_AUTHORIZATION, DEVICE_REGISTRATION,
-                    DAEMON_INSTALLATION, DAEMON_START, OBSERVATION_VERIFICATION, FIRST_USE_VERIFICATION, COMPLETE]
+                    DAEMON_INSTALLATION, DAEMON_START, OBSERVATION_VERIFICATION, FIRST_USE_VERIFICATION,
+                    AUTOMATIC_BACKUP, COMPLETE]
         seen = []
         for phase in phases(result):
             if phase not in seen:
                 seen.append(phase)
         self.assertEqual(seen, expected)
-        self.assertTrue(all(step.check.status in {"ok", "warning"} for step in result.steps))
+        self.assertTrue(all(step.check.status in {"ok", "warning"} for step in result.steps if step.phase != AUTOMATIC_BACKUP))
+        self.assertEqual((by_name(result)["Automatic photo backup"].status, by_name(result)["Automatic photo backup"].summary), ("skipped", "off"))
         # Registered with the default name, as the default device, by the real pairing code.
         self.assertEqual(config["default_device"], "phone")
         self.assertEqual(config["devices"]["phone"]["device_id"], SERIAL)
@@ -364,6 +369,158 @@ class SetupIdempotenceTests(unittest.TestCase):
         self.assertEqual(config["custom"], {"keep": True})
 
 
+class AutomaticBackupPhaseTests(unittest.TestCase):
+    """v0.6: setup offers automatic photo backup once, after the phone is known-good."""
+
+    def rules(self, h):
+        return json.loads(h.automations.read_text(encoding="utf-8"))["automations"] if h.automations.exists() else []
+
+    def test_decline_is_the_default_and_creates_nothing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            h = Harness(directory)  # confirm answers no, like pressing Enter at [y/N]
+            events = []
+            result = h.run(events=events)
+            rules_exist = h.automations.exists()
+
+        self.assertTrue(result.ok, result.failure)
+        self.assertEqual(h.confirms, [setup_module.BACKUP_QUESTION])
+        self.assertFalse(rules_exist, "declining writes no rule and no file")
+        self.assertEqual(h.daemon.restarts, 0)
+        step = by_name(result)["Automatic photo backup"]
+        self.assertEqual((step.status, step.summary), ("skipped", "off"))
+        self.assertIn("linkplane automations enable photo-backup", step.fix)
+        guidance = "\n".join(next(e.details["guidance"] for e in events if e.phase == AUTOMATIC_BACKUP and "guidance" in e.details))
+        self.assertIn("one-way", guidance)
+        self.assertIn("never deletes their backups", guidance)
+        self.assertEqual(result.automatic_backup, {"state": "not set up", "destination": None, "changed": False})
+        self.assertNotIn("linkplane automations jobs", result.next_steps)
+
+    def test_question_comes_only_after_basic_setup_is_known_good(self):
+        with tempfile.TemporaryDirectory() as directory:
+            h = Harness(directory, confirm=True)
+            result = h.run()
+        names = [step.check.name for step in result.steps]
+        self.assertLess(names.index("Battery"), names.index("Automatic photo backup"))
+        with tempfile.TemporaryDirectory() as directory:
+            h = Harness(directory, devices=[[device(state="unauthorized")]], confirm=True)
+            failed = h.run(device_wait=2.0)
+        self.assertFalse(failed.ok)
+        self.assertNotIn(setup_module.BACKUP_QUESTION, h.confirms)
+        self.assertFalse(h.automations.exists())
+
+    def test_opt_in_writes_one_ordinary_rule_and_restarts_the_daemon_to_start_now(self):
+        with tempfile.TemporaryDirectory() as directory:
+            h = Harness(directory, confirm=True)
+            result = h.run()
+            rules = self.rules(h)
+            photos = str((Path(directory) / "Photos").resolve())
+
+        self.assertTrue(result.ok, result.failure)
+        self.assertEqual(h.prompts[-1], (setup_module.BACKUP_FOLDER_QUESTION, str(Path(directory) / "Photos")))
+        self.assertEqual(rules, [{
+            "name": "photo-backup:phone", "preset": "photo-backup", "enabled": True, "when": "device.connected",
+            "device": "phone", "on_initial": True,
+            "do": [{"action": "backup", "source": "/sdcard/DCIM/Camera", "destination": photos},
+                   {"action": "notify-desktop", "if": {"downloaded": {"above": 0}}, "title": "Linkplane photo backup",
+                    "message": "{downloaded} new photo(s) or video(s) backed up to {destination}"}],
+        }])
+        self.assertEqual(h.daemon.restarts, 1, "the restart re-observes the connected phone: the first backup starts")
+        step = by_name(result)["Automatic photo backup"]
+        self.assertEqual(step.status, "ok")
+        self.assertIn("first backup is starting now", step.summary)
+        self.assertEqual(result.automatic_backup["state"], "enabled")
+        self.assertTrue(result.automatic_backup["first_backup_started"])
+        self.assertEqual(result.next_steps[-1], "linkplane automations jobs")
+
+    def test_rerun_never_duplicates_never_asks_again_and_shows_the_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            h = Harness(directory, confirm=True)
+            h.run()
+            before = h.automations.read_text(encoding="utf-8")
+            h.confirms.clear()
+            second = h.run()
+            after = h.automations.read_text(encoding="utf-8")
+
+        self.assertEqual(before, after)
+        self.assertEqual(h.confirms, [])
+        self.assertEqual(h.daemon.restarts, 1, "no second restart")
+        step = by_name(second)["Automatic photo backup"]
+        self.assertEqual(step.status, "ok")
+        self.assertTrue(step.summary.startswith("on: new photos go to "))
+
+    def test_declined_then_rerun_is_not_asked_again(self):
+        with tempfile.TemporaryDirectory() as directory:
+            h = Harness(directory)
+            h.run()
+            h.confirms.clear()
+            second = h.run()
+        self.assertEqual(h.confirms, [])
+        step = by_name(second)["Automatic photo backup"]
+        self.assertEqual((step.status, step.summary), ("skipped", "off"))
+        self.assertIn("automations enable photo-backup", step.fix)
+
+    def test_disabled_rule_is_shown_off_and_left_alone(self):
+        from linkplane import presets
+
+        with tempfile.TemporaryDirectory() as directory:
+            h = Harness(directory, confirm=True)
+            h.run()
+            presets.disable_photo_backup("phone", path=str(h.automations))
+            before = h.automations.read_text(encoding="utf-8")
+            second = h.run()
+            after = h.automations.read_text(encoding="utf-8")
+        self.assertEqual(before, after)
+        self.assertEqual(by_name(second)["Automatic photo backup"].status, "skipped")
+        self.assertEqual(second.automatic_backup["state"], "disabled")
+
+    def test_non_interactive_and_dry_run_never_enable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            h = Harness(directory, confirm=True)
+            quiet = h.run(interactive=False)
+            self.assertFalse(h.automations.exists())
+        with tempfile.TemporaryDirectory() as directory:
+            h = Harness(directory, confirm=True)
+            dry = h.run(dry_run=True)
+            self.assertFalse(h.automations.exists())
+        self.assertNotIn(setup_module.BACKUP_QUESTION, h.confirms)
+        self.assertIn("non-interactive", by_name(quiet)["Automatic photo backup"].summary)
+        self.assertIn("default: no", by_name(dry)["Automatic photo backup"].summary)
+
+    def test_unsafe_folder_is_explained_and_asked_again(self):
+        with tempfile.TemporaryDirectory() as directory:
+            good = str(Path(directory) / "Mine")
+            h = Harness(directory, confirm=True, answers=["phone", "/etc/photos", good])
+            events = []
+            result = h.run(events=events)
+            rules = self.rules(h)
+
+        self.assertTrue(result.ok, result.failure)
+        self.assertEqual(rules[0]["do"][0]["destination"], str(Path(good).resolve()))
+        guidance = [line for e in events if e.phase == AUTOMATIC_BACKUP for line in e.details.get("guidance", [])]
+        self.assertTrue(any("system location" in line for line in guidance))
+
+    def test_repeatedly_unsafe_folder_leaves_it_off_but_setup_succeeds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            h = Harness(directory, confirm=True, answers=["phone", "/", "/etc", "/usr/x"])
+            result = h.run()
+            exists = h.automations.exists()
+        self.assertTrue(result.ok, result.failure)
+        self.assertFalse(exists)
+        step = by_name(result)["Automatic photo backup"]
+        self.assertEqual(step.status, "warning")
+        self.assertIn("not turned on", step.summary)
+
+    def test_without_a_daemon_the_rule_is_written_and_nothing_is_restarted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            h = Harness(directory, tools=("adb",), environ={}, daemon=FakeDaemon(running=False), confirm=True)
+            result = h.run()
+            rules = self.rules(h)
+        self.assertTrue(result.ok, result.failure)
+        self.assertEqual(len(rules), 1)
+        self.assertEqual(h.daemon.restarts, 0)
+        self.assertIn("once the Linkplane service is running", by_name(result)["Automatic photo backup"].summary)
+
+
 class DependencyPhaseTests(unittest.TestCase):
     def test_adb_missing_and_user_accepts_install(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -374,7 +531,7 @@ class DependencyPhaseTests(unittest.TestCase):
         self.assertTrue(result.ok, result.failure)
         self.assertEqual(len(h.installs), 1)
         self.assertEqual(" ".join(h.installs[0].install_command), "sudo pacman -S --needed android-tools")
-        self.assertEqual(h.confirms, ["Install android-tools now?"])
+        self.assertEqual(h.confirms[0], "Install android-tools now?")
         guidance = next(e.details["guidance"] for e in events if "guidance" in e.details and e.phase == DEPENDENCIES)
         self.assertIn("  sudo pacman -S --needed android-tools", guidance)
         self.assertIn("installed", by_name(result)["Android platform tools"].summary)
@@ -435,7 +592,7 @@ class DevicePhaseTests(unittest.TestCase):
             result = h.run(events=events)
 
         self.assertTrue(result.ok, result.failure)
-        guidance = [e.details["guidance"] for e in events if "guidance" in e.details]
+        guidance = [e.details["guidance"] for e in events if "guidance" in e.details and e.phase != AUTOMATIC_BACKUP]
         self.assertEqual(len(guidance), 1)
         self.assertIn("tap Allow", "\n".join(guidance[0]))
         self.assertNotIn("udev", "\n".join(guidance[0]))

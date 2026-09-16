@@ -26,7 +26,9 @@ from typing import Any, Callable
 from linkplane import __version__
 from linkplane import clients as clients_module
 from linkplane import daemon as daemond
+from linkplane import presets
 from linkplane import service
+from linkplane.backup import DEFAULT_DESTINATION as DEFAULT_BACKUP_DESTINATION
 from linkplane.core import errors
 from linkplane.dependencies import (
     DependencyPlan,
@@ -80,12 +82,13 @@ DAEMON_INSTALLATION = "daemon_installation"
 DAEMON_START = "daemon_start"
 OBSERVATION_VERIFICATION = "observation_verification"
 FIRST_USE_VERIFICATION = "first_use_verification"
+AUTOMATIC_BACKUP = "automatic_backup"
 API_CLIENT = "api_client"
 COMPLETE = "complete"
 PHASES = (
     PREFLIGHT, DEPENDENCIES, DEVICE_DETECTION, DEVICE_AUTHORIZATION, DEVICE_REGISTRATION,
     DAEMON_INSTALLATION, DAEMON_START, OBSERVATION_VERIFICATION, FIRST_USE_VERIFICATION,
-    API_CLIENT, COMPLETE,
+    AUTOMATIC_BACKUP, API_CLIENT, COMPLETE,
 )
 
 DEFAULT_PROFILE_NAME = "phone"
@@ -124,6 +127,18 @@ NEXT_STEPS = (
     "linkplane status",
     f"echo \"Hello from Linkplane\" > {SEND_EXAMPLE_PATH} && linkplane send {SEND_EXAMPLE_PATH}",
 )
+# Automatic photo backup (v0.6): offered once, when this run registers the phone, after
+# every basic check has passed. The default answer is no; nothing is enabled silently.
+BACKUP_GUIDANCE = (
+    "Linkplane can back up this phone's photos automatically.",
+    "Each time the phone connects, new photos and videos from its camera folder are copied to a",
+    "folder on this computer and checksum-verified. It is one-way: nothing on the phone is changed,",
+    "and deleting photos from the phone never deletes their backups.",
+)
+BACKUP_QUESTION = "Turn on automatic photo backup for this phone?"
+BACKUP_FOLDER_QUESTION = "Back up photos to"
+BACKUP_ENABLE_COMMAND = f"linkplane automations enable {presets.PHOTO_BACKUP}"
+BACKUP_FOLDER_ATTEMPTS = 3
 ADVANCED_HINT = "Wireless ADB or Termux/SSH later: linkplane pair wireless … / linkplane pair ssh …"
 
 # Optional tools worth one line each on the happy path; everything else stays in doctor.
@@ -145,6 +160,8 @@ class SetupOptions:
     daemon_arguments: tuple[str, ...] = ()
     api_client: str | None = None
     clients_path: str | None = None
+    automations_path: str | None = None
+    backup_destination: str = DEFAULT_BACKUP_DESTINATION  # the default offered, not a choice
     dry_run: bool = False
     interactive: bool = True
     device_wait: float = 120.0
@@ -168,6 +185,7 @@ class SetupSeams:
     daemon_status: Callable[[str | None], dict[str, Any] | None] | None = None
     restart_daemon: Callable[[], None] | None = None
     start_daemon: Callable[[], None] | None = None
+    reload_daemon: Callable[[str | None], Any] | None = None
     create_client: Callable[..., tuple[Any, str]] | None = None
     load_clients: Callable[[str | None], tuple[Any, ...]] | None = None
     clock: Callable[[], float] | None = None
@@ -212,6 +230,7 @@ class SetupResult:
     api_client: dict[str, Any] | None = None
     next_steps: tuple[str, ...] = ()
     dry_run: bool = False
+    automatic_backup: dict[str, Any] | None = None
 
     @property
     def failure(self) -> SetupStep | None:
@@ -227,6 +246,7 @@ class SetupResult:
             "profile": self.profile,
             "daemon": self.daemon,
             "api_client": self.api_client,
+            "automatic_backup": self.automatic_backup,
             "timing": self.timing.to_dict(),
             "next_steps": list(self.next_steps),
         }
@@ -299,6 +319,7 @@ class _Run:
         self.daemon_status = s.daemon_status or _default_daemon_status
         self.restart_daemon = s.restart_daemon or _default_restart_daemon
         self.start_daemon = s.start_daemon or _default_start_daemon
+        self.reload_daemon = s.reload_daemon or (lambda socket_path: daemond.request("reload", socket_path))
         self.create_client = s.create_client or clients_module.create_client
         self.load_clients = s.load_clients or clients_module.load_clients
         self.clock = s.clock or time.monotonic
@@ -327,6 +348,7 @@ class _Run:
         self.daemon_was_running = False
         self.config_changed = False
         self.api_client_result: dict[str, Any] | None = None
+        self.backup_result: dict[str, Any] | None = None
 
     # -- helpers ---------------------------------------------------------------------
 
@@ -722,6 +744,83 @@ class _Run:
         self.step(phase, "Battery", "ok", f"{battery.level}% ({battery.status})")
         self.first_use_at = _now_iso()
 
+    def automatic_backup(self) -> None:
+        phase = AUTOMATIC_BACKUP
+        name = "Automatic photo backup"
+        if not self.profile:
+            return
+        device = self.profile["name"]
+        enable_hint = f"Turn on any time: {BACKUP_ENABLE_COMMAND}"
+        try:
+            existing = next((rule for rule in presets.preset_rules(self.options.automations_path) if rule.get("device") == device), None)
+        except errors.LinkplaneError as error:
+            self.step(phase, name, "warning", f"not offered: {error}", "; ".join(error.hints) or None, error.code)
+            return
+        if existing is not None:
+            destination = presets.rule_destination(existing)
+            enabled = existing.get("enabled", True)
+            self.backup_result = {"state": "enabled" if enabled else "disabled", "destination": destination, "changed": False}
+            if enabled:
+                self.step(phase, name, "ok", f"on: new photos go to {destination}")
+            else:
+                self.step(phase, name, "skipped", "off", f"Turn it back on: {BACKUP_ENABLE_COMMAND}")
+            return
+        self.backup_result = {"state": "not set up", "destination": None, "changed": False}
+        if self.options.dry_run:
+            self.step(phase, name, "skipped", "off; a newly registered phone would be asked (default: no)")
+            return
+        if not self.profile.get("created"):
+            # Asked only on the run that registers this phone, so a rerun never nags.
+            self.step(phase, name, "skipped", "off", enable_hint)
+            return
+        if not self.options.interactive:
+            self.step(phase, name, "skipped", "off (not asked: non-interactive)", enable_hint)
+            return
+        self.guidance(phase, BACKUP_GUIDANCE)
+        if not self.confirm(BACKUP_QUESTION):
+            self.step(phase, name, "skipped", "off", enable_hint)
+            return
+        problem: errors.LinkplaneError | None = None
+        change = None
+        for _attempt in range(BACKUP_FOLDER_ATTEMPTS):
+            answer = self.ask(BACKUP_FOLDER_QUESTION, self.options.backup_destination)
+            try:
+                change = presets.enable_photo_backup(device, answer, device_id=self.profile.get("device_id"),
+                                                     path=self.options.automations_path)
+                break
+            except errors.LinkplaneError as error:
+                problem = error
+                if error.code != errors.REQUEST_INVALID:
+                    break
+                self.guidance(phase, (str(error), *error.hints))
+        if change is None:
+            assert problem is not None
+            self.step(phase, name, "warning", f"not turned on: {problem}", enable_hint, problem.code)
+            return
+        destination = presets.rule_destination(change.rule)
+        self.backup_result = {"state": "enabled", "destination": destination, "changed": True}
+        # Make the daemon use the new rule. A restart also re-observes the phone that is
+        # plugged in right now, so the first backup starts in the background immediately.
+        if self.daemon["running"] and self.daemon["installed"]:
+            try:
+                self.restart_daemon()
+            except BridgeError as error:
+                self.step(phase, name, "warning", f"on: new photos go to {destination}; the service did not restart ({error})",
+                          "It runs the next time the phone connects, or run: systemctl --user restart linkplaned")
+                return
+            self.backup_result["first_backup_started"] = True
+            self.step(phase, name, "ok", f"on: new photos go to {destination}; the first backup is starting now")
+            return
+        if self.daemon["running"]:
+            try:
+                self.reload_daemon(self.options.socket_path)
+            except (BridgeError, OSError):
+                self.step(phase, name, "warning", f"on: new photos go to {destination}", "Apply it with: linkplane daemon reload")
+                return
+            self.step(phase, name, "ok", f"on: new photos go to {destination} each time the phone connects")
+            return
+        self.step(phase, name, "ok", f"on: new photos go to {destination} once the Linkplane service is running")
+
     def api_client(self) -> None:
         phase = API_CLIENT
         client_id = self.options.api_client
@@ -761,6 +860,7 @@ class _Run:
             self.daemon_start()
             self.observation_verification()
             self.first_use_verification()
+            self.automatic_backup()
             self.api_client()
             self.step(COMPLETE, "Ready", "ok", "Your phone is ready")
             return self.result(True, "complete")
@@ -779,8 +879,9 @@ class _Run:
             profile=self.profile,
             daemon=dict(self.daemon),
             api_client=self.api_client_result,
-            next_steps=NEXT_STEPS if ok else (),
+            next_steps=(NEXT_STEPS + (("linkplane automations jobs",) if (self.backup_result or {}).get("changed") else ())) if ok else (),
             dry_run=self.options.dry_run,
+            automatic_backup=self.backup_result,
         )
 
 

@@ -68,6 +68,8 @@ entries and feed later rule actions; they never update `DeviceState`. See
 `status battery ping capabilities devices doctor` (doctor also reports USB access, configuration permissions, desktop notifications) · `send backup notify clipboard find` ·
 `screen audio camera webcam` · `pair profiles` · `events [--follow]` · `watch` ·
 `daemon run|status|stop|reload|install|uninstall` · `automations list|log|jobs` ·
+`automations presets|enable|disable` (development, v0.6: built-in presets such as
+`photo-backup` that write ordinary rules; `presets.py`) ·
 `clients create|list|revoke` · `setup` (guided first run: `docs/install-onboarding-design.md` §8–§9;
 composes the dependency catalogue, ADB device states, USB pairing, the unit installer, the
 daemon socket, and the ADB provider; no state file of its own; `--dry-run`, `--json`,
@@ -121,6 +123,17 @@ Termux:API on the phone; the ADB provider reports them `unsupported` with that r
 | provider chatter | captured | `adb push` etc. never reach stdout of the daemon or CLI |
 
 ## Known limitations
+
+- *(Development, v0.6)* The observer marks a device's **first** connection after the daemon
+  starts as an initial observation, whether it was plugged in before the daemon started or
+  later; only reconnects are changes. Rules without `on_initial` therefore do not fire on
+  the first plug-in after login. The photo-backup preset sets `on_initial`; the global
+  semantics are unchanged (`docs/v0.6-direction.md` §12).
+- Backup discovery runs one `adb shell stat` per phone file and re-hashes every
+  already backed-up local file on every run; the cost on a large real library is not
+  measured yet (`tools/measure-backup.py`).
+- A backup manifest is bound to the ADB serial it was made with, so a wireless serial
+  (`host:port`) does not continue a USB-made backup.
 
 - SSH-only devices are not observed by the daemon (no push source); they are reachable by
   the one-shot commands.

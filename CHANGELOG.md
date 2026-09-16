@@ -7,7 +7,19 @@ listed here).
 
 ## [Unreleased]
 
-Nothing yet.
+In development for v0.6 on the `dev/v0.6` branch; not released.
+
+### Added
+- Automatic photo backup preset: `linkplane automations presets|enable|disable photo-backup`
+  writes an ordinary rule that backs up a phone's camera folder whenever it connects and
+  notifies the desktop only when new files arrived. `linkplane setup` offers it once for a
+  newly registered phone (default: no). `linkplane status` shows its state and last run.
+- Rule steps may carry their own `if` condition over earlier results.
+
+### Changed
+- `backup` checks free space before downloading (`LP-STORAGE-001`), never overwrites a file
+  in the destination that it did not create, and refuses to write through a symbolic link
+  inside the destination.
 
 ## [0.5.1] — 2026-09-13
 

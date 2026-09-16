@@ -45,7 +45,7 @@ def measure_phone(arguments: argparse.Namespace) -> int:
 
 def measure_synthetic(arguments: argparse.Namespace) -> int:
     chunk = os.urandom(1024 * 1024)
-    with tempfile.TemporaryDirectory(prefix="linkplane-measure-") as directory:
+    with tempfile.TemporaryDirectory(prefix="linkplane-measure-", dir=arguments.dir) as directory:
         paths = []
         for index in range(arguments.files):
             path = Path(directory) / f"IMG_{index:06d}.jpg"
@@ -76,6 +76,7 @@ def main() -> int:
     synthetic = modes.add_parser("synthetic", help="local re-hash of a throwaway library")
     synthetic.add_argument("--files", type=int, default=1000)
     synthetic.add_argument("--size-mb", type=int, default=4)
+    synthetic.add_argument("--dir", help="where to build it (default: the system temp dir, which may be RAM-backed)")
     arguments = parser.parse_args()
     return measure_phone(arguments) if arguments.mode == "phone" else measure_synthetic(arguments)
 

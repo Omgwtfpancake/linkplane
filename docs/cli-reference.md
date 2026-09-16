@@ -160,7 +160,11 @@ linkplane automations log [--follow]   # what fired, when, and how each action w
 
 `when` is an event type; `if` is a flat map over the event's data (`"ssid": "Home"`,
 `"level": {"below": 15}`, `{"above": n}`, `{"in": [...]}`, `{"not": v}`); `do` runs in
-order and stops at the first failure unless `"continue_on_error": true`. A rule that uses
+order and stops at the first failure unless `"continue_on_error": true`. *(Development,
+unreleased, v0.6)* a step may carry its own `if`, tested when the step is reached against
+the event's data plus every earlier step's result, e.g.
+`{"action": "notify-desktop", "if": {"downloaded": {"above": 0}}, ...}`; an unmet step
+condition skips that step without failing the rule. A rule that uses
 `run` must list `"allow": ["run"]`, or it is loaded as *blocked* and shown as such. Rules
 never fire on the opening observation unless `"on_initial": true`. Every firing is written
 to `~/.local/state/linkplane/audit.jsonl`.
@@ -185,6 +189,35 @@ backup. One job per device and action at a time; a repeat trigger is recorded as
 linkplane automations jobs          # recent jobs: state, progress, result or error
 linkplane watch device.connected --backup ~/Pictures/Linkplane   # the same, from a flag
 ```
+
+### Automatic photo backup preset (development, unreleased)
+
+> In development for v0.6 on the `dev/v0.6` branch; not in any release yet.
+
+Presets are built-in rules you switch on instead of writing JSON. Enabling one writes an
+ordinary rule into `automations.json` (visible in `automations list`, marked with its
+preset); the daemon runs it like any other rule.
+
+```sh
+linkplane automations presets                                   # what exists, and whether it is on per phone
+linkplane automations enable photo-backup                       # the default device, ~/Pictures/Linkplane
+linkplane automations enable photo-backup --device phone --destination ~/Backups/Phone
+linkplane automations disable photo-backup                      # off; the rule and every backup stay
+```
+
+`photo-backup` writes one rule per device profile, named `photo-backup:<device>`: when
+that phone connects, including when it is already connected as the daemon starts, run the
+verified backup of `/sdcard/DCIM/Camera` into the folder, then send a desktop notification
+only if new files were copied. The backup is one-way and additive: nothing on the phone is
+changed, deleting photos from the phone never deletes their backups, and an existing file
+in the folder that Linkplane did not create is never overwritten. The folder must be an
+absolute, user-writable path that is not a system location, the home directory itself,
+another phone's backup, or another phone's preset folder. `enable` and `disable` ask a
+running daemon to reload. `linkplane setup` offers the preset once, after a newly
+registered phone passes every check (default: no).
+
+`linkplane status` shows `Backup … on, to <folder>` and `Last backup <when>, N new file(s)
+copied` (or the failure) for the selected phone, read from the job records.
 
 ## Daemon
 
@@ -302,6 +335,13 @@ SHA-256 in `.linkplane-manifest.json`. Every downloaded file is written to a tem
 path and verified against the checksum reported by the phone before it replaces the local
 copy. Later runs checksum locally unchanged files and download only new, changed, missing,
 or damaged files. Files removed from the phone are never deleted from the backup.
+
+*(Development, unreleased, v0.6)* Before downloading, backup checks that the destination
+has room for everything pending (plus the largest file replacing a local copy) and stops
+with `LP-STORAGE-001` otherwise, without creating the folder. A file already in the folder
+that no manifest entry records is never overwritten: if it matches the phone's copy byte
+for byte it is recorded, otherwise it is left alone and reported. Writing through a
+symbolic link inside the destination is refused.
 
 ## Camera
 

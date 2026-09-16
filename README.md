@@ -2,15 +2,86 @@
 
 **Make real devices programmable.**
 
-Linkplane is an open, local-first control plane for real devices, starting with your Android
-phone and your Linux desktop. One command, `linkplane`, and one small background service
-give you the phone's battery and status, file transfer, verified photo backup, screen
-mirroring, notifications in both directions, a "find my phone", a live stream of device
-events your own scripts and tools can react to, and a local HTTP API for anything else you
-want to build on top.
+Linkplane makes Android devices programmable from your computer.
 
-No account. No cloud. Your phone talks to your computer over a USB cable (or, later, your own
-Wi-Fi), and everything Linkplane knows stays on that computer.
+It is an open, local-first control plane for real devices: a small background service on
+your Linux machine that knows when your phone is connected, keeps track of its state, and
+runs the actions you have approved (a verified photo backup, a notification, a file
+delivery, screen mirroring, your own script) without you typing every command by hand. One
+command, `linkplane`, and a local HTTP API give you and your own programs the same device
+interface.
+
+No account. No cloud. Your phone talks to your computer over a USB cable (wireless ADB is
+available for advanced users), and everything Linkplane knows stays on that computer.
+
+## Why Linkplane
+
+Using a phone with a computer usually looks like this, every time:
+
+```text
+connect the phone → check it → copy something by hand → launch another tool
+```
+
+Linkplane is building toward this instead:
+
+```text
+phone connects → Linkplane knows → state and events are available
+               → approved actions run: files move, notifications appear, tools launch
+               → your scripts, bars and programs use one device interface
+```
+
+The foundation for that works today: the background service observes connections, battery
+and Wi-Fi, and rules can back up new photos whenever the phone connects and tell you when
+they are done. Setting that up still means editing a rules file; making it a one-step
+choice is the next milestone ([`docs/v0.6-direction.md`](docs/v0.6-direction.md)).
+
+**If you only want to copy an occasional file over USB, you probably do not need
+Linkplane.** Your file manager, `adb push`, KDE Connect / GSConnect and LocalSend already
+do that well. Linkplane is for the work you would otherwise repeat by hand, or want other
+programs to do for you.
+
+It is not trying to replace those tools. Linkplane uses ADB and scrcpy underneath and can
+hand a transfer to LocalSend; it is not a cloud photo service, a full phone backup, or a
+mass-market phone companion app (yet).
+
+## Who it is for
+
+Right now, in public alpha:
+
+- Linux developers and power users who are comfortable in a terminal
+- homelab and automation users who want the phone to be one more scriptable device
+- privacy-focused, local-first users who want no account and no cloud
+- Android tinkerers who want scripting and control over their own phone
+
+Later, the same control plane is meant to serve everyday desktop users through automatic
+backup, a tray menu, wireless connection and multi-device workflows. None of that is a
+finished consumer experience today.
+
+## How it fits together
+
+```text
+Linux computer (everything below runs here, as your user)
+│
+├── linkplane           CLI: one-shot commands and setup
+├── linkplaned          background service (a systemd user service)
+│    ├── state          what is connected, battery, Wi-Fi
+│    ├── events         connect, disconnect, battery, Wi-Fi changes
+│    ├── rules + jobs   "when this happens, do that", tracked and cancellable
+│    ├── audit          what ran, when, and why
+│    └── local API      http://127.0.0.1:8741, token-scoped, for your own tools
+│
+└── providers           ADB (primary) · Termux/SSH (optional) · scrcpy, LocalSend (tools)
+         │
+    USB cable or your own network
+         │
+Android phone           nothing Linkplane-specific installed; exposes capabilities via ADB
+```
+
+The application layer is managed from the Linux machine. The phone only needs USB
+debugging. The background service exists because something has to notice the phone
+arriving and react when no terminal is open; it is installed as a `systemd --user` service
+so it starts at login and runs as you, without root. Every one-shot command also works
+without it. There is no tray icon or window yet; see the roadmap.
 
 ## What Linkplane does
 
@@ -19,7 +90,7 @@ Wi-Fi), and everything Linkplane knows stays on that computer.
 | **See** | `linkplane status`, battery, storage, memory, Wi-Fi; `linkplane devices` |
 | **Move files** | `linkplane send` to the phone; `linkplane backup` pulls photos incrementally with SHA-256 verification |
 | **Use the phone** | screen mirroring and control, camera preview, audio, a virtual webcam (all via scrcpy); notifications to the phone; ring, vibrate and flash to find it |
-| **React** | `linkplane events` streams connect, disconnect, battery and Wi-Fi changes; `linkplane watch` and rule files run actions when they happen |
+| **React** | `linkplane events` streams connect, disconnect, battery and Wi-Fi changes; `linkplane watch` and rule files run actions when they happen, such as a photo backup when the phone connects |
 | **Build on it** | a background daemon with a local, token-scoped HTTP API and Server-Sent Events, so dashboards, bars and agents can use the same control plane |
 
 ## Quick start
@@ -133,6 +204,7 @@ platform is under [`docs/testing/`](docs/testing/).
 - [`docs/troubleshooting.md`](docs/troubleshooting.md), the common onboarding problems and their codes
 - [`docs/cli-reference.md`](docs/cli-reference.md), every command
 - [`docs/current-state.md`](docs/current-state.md), what exists, vocabulary, files on disk
+- [`docs/v0.6-direction.md`](docs/v0.6-direction.md) and [`docs/alpha-feedback.md`](docs/alpha-feedback.md), where Linkplane is going next and why
 - [`docs/architecture.md`](docs/architecture.md) and [`docs/adr/`](docs/adr/), how and why
 - [`docs/local-api-design.md`](docs/local-api-design.md) and [`docs/openapi.json`](docs/openapi.json), the local API
 
@@ -146,8 +218,8 @@ make test-device       # the paired phone (never part of make test)
 PYTHONPATH=src python -m linkplane status   # run the checkout directly
 ```
 
-The test tiers are described in `tests/README.md`. Contributions are welcome once the
-repository is public; until then this is a pre-release.
+The test tiers are described in `tests/README.md`. Linkplane is a public alpha; issues and
+contributions are welcome (`CONTRIBUTING.md`).
 
 ## License
 

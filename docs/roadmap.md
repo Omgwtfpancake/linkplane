@@ -1,8 +1,17 @@
 # Roadmap
 
-The immediate milestone is **Core v0.1** as specified in `docs/core-v0.1-brief.md`; progress
-against its Definition of Done is tracked in `docs/core-v0.1-plan.md`. Everything under
-"Automation" and "Interfaces" below is a later milestone and is not being built now.
+**Where Linkplane is now:** package 0.5.1, public alpha. The sections below record the
+engineering milestones already completed (Core v0.1, Core v0.2, automation, refinement, the
+local API, onboarding). The next product milestone is proposed in
+[`v0.6-direction.md`](v0.6-direction.md): *automatic usefulness*, automatic photo backup on
+connect as a one-step opt-in, exposing the existing rules / jobs engine rather than building
+a new one. Alpha feedback that motivated it: [`alpha-feedback.md`](alpha-feedback.md).
+
+| Milestone | Outcome |
+|---|---|
+| v0.5.x | alpha feedback and fixes |
+| v0.6 (proposed) | the phone does useful work because it is connected: automatic backup on connect |
+| later | wireless reconnection · tray / bar client · more presets and triggers · Android agent · MCP · multi-device · macOS · Windows |
 
 ## Refinement pass (complete)
 

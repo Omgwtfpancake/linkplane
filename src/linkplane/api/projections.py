@@ -76,7 +76,7 @@ def audit_dict(entry: Mapping[str, Any], resolve: DeviceIdResolver | None = None
     return projected
 
 
-def _step_dict(step_action: str, options: Mapping[str, Any]) -> dict[str, Any]:
+def _step_dict(step_action: str, options: Mapping[str, Any], conditions: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """A rule step for inspection. `run` command text is intentionally omitted: it may
     embed credentials or paths the operator never meant to publish; only its presence,
     its timeout, and the public name of what it does are shown."""
@@ -88,6 +88,8 @@ def _step_dict(step_action: str, options: Mapping[str, Any]) -> dict[str, Any]:
             "timeout": options.get("timeout", 300),
         }
     projected = redact_record(dict(options))
+    if conditions:
+        projected["if"] = redact_record(dict(conditions))  # a step-level condition (v0.6)
     return {"action": step_action, "capability": public_action(step_action), **projected}
 
 
@@ -106,7 +108,8 @@ def rule_dict(rule: Automation, *, state: str, blocked_actions: tuple[str, ...] 
         "continue_on_error": rule.continue_on_error,
         "allow": list(rule.allow),
         "blocked_actions": list(blocked_actions),
-        "do": [_step_dict(step.action, step.options) for step in rule.do],
+        "do": [_step_dict(step.action, step.options, step.conditions) for step in rule.do],
+        "preset": rule.preset,
     }
 
 

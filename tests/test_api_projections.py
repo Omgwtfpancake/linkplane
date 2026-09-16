@@ -81,6 +81,19 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual((by_name["blocked"]["state"], by_name["blocked"]["blocked_actions"]), ("blocked", ["run"]))
         self.assertNotIn("secret", json.dumps(projected))
         self.assertNotIn("Bearer S", json.dumps(projected))
+        self.assertIsNone(bk["preset"])
+
+    def test_preset_rule_projection_shows_the_preset_and_step_conditions(self):
+        from linkplane import presets
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "rules.json"
+            path.write_text(json.dumps({"automations": [presets.photo_backup_rule("phone", "/home/u/Pictures/Linkplane")]}))
+            loaded = load_rules(str(path))
+        rule = projections.rules_dict(loaded, fired=0, resolve=self.resolve)["rules"][0]
+        self.assertEqual((rule["preset"], rule["on_initial"]), ("photo-backup", True))
+        self.assertNotIn("if", rule["do"][0])
+        self.assertEqual(rule["do"][1]["if"], {"downloaded": {"above": 0}})
 
 
 class ReverseAuditReaderTests(unittest.TestCase):

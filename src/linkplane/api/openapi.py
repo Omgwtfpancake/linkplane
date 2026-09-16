@@ -144,14 +144,16 @@ def build_spec() -> dict[str, Any]:
                               "responses": {"200": _ok("AuditList", "entries"), "400": _err("bad filter"), **auth}}},
     }
     step_schema = {"type": "object", "required": ["action"], "properties": {"action": {"type": "string"}, "capability": {"type": ["string", "null"]},
-                   "privileged": {"type": "boolean"}, "command": {"const": security.REDACTED, "description": "run command text is never exposed"}},
+                   "privileged": {"type": "boolean"}, "command": {"const": security.REDACTED, "description": "run command text is never exposed"},
+                   "if": {"type": "object", "description": "step-level condition over the event data and earlier results"}},
                    "additionalProperties": True}
     rule_schema = {"type": "object", "required": ["name", "state", "enabled", "when", "device", "device_id", "if", "cooldown_seconds", "on_initial", "continue_on_error", "allow", "blocked_actions", "do"],
                    "properties": {"name": {"type": "string"}, "state": {"type": "string", "enum": ["active", "blocked"]}, "enabled": {"type": "boolean"},
                                   "when": {"type": "string", "enum": list(EVENT_TYPES)}, "device": {"type": ["string", "null"]}, "device_id": {"type": ["string", "null"]},
                                   "if": {"type": "object"}, "cooldown_seconds": {"type": "number"}, "on_initial": {"type": "boolean"}, "continue_on_error": {"type": "boolean"},
                                   "allow": {"type": "array", "items": {"type": "string"}}, "blocked_actions": {"type": "array", "items": {"type": "string"}},
-                                  "do": {"type": "array", "items": step_schema}}}
+                                  "do": {"type": "array", "items": step_schema},
+                                  "preset": {"type": ["string", "null"], "description": "the built-in preset that wrote this rule, if any"}}}
     rules_summary = {"type": "object", "required": ["loaded", "active", "blocked", "fired"],
                      "properties": {"loaded": {"type": "integer"}, "active": {"type": "array", "items": {"type": "string"}},
                                     "blocked": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}, "fired": {"type": "integer"}}}

@@ -125,6 +125,33 @@ def print_status(status: dict[str, Any]) -> None:
         print(f"Warning     {issue['component']}: {issue['error']}")
 
 
+def print_backup_status(arguments: argparse.Namespace, *, jobs_dir: str | None = None, rules_path: str | None = None) -> None:
+    """Automatic photo backup lines under `status`, derived from the rules file and job
+    records. Best effort: status never fails because of them, and prints nothing when the
+    preset was never set up for this phone."""
+    from linkplane import presets
+
+    try:
+        name = getattr(arguments, "device_profile", None) or load_config(getattr(arguments, "config", None)).get("default_device")
+        rules = presets.preset_rules(rules_path)
+    except (BridgeError, OSError, ValueError):
+        return
+    rule = next((rule for rule in rules if rule.get("device") == name), None)
+    if rule is None and len(rules) == 1 and name is None:
+        rule = rules[0]
+    if rule is None:
+        return
+    if not rule.get("enabled", True):
+        print("Backup      automatic photo backup off")
+        return
+    print(f"Backup      automatic photo backup on, to {presets.rule_destination(rule)}")
+    try:
+        record = presets.last_run(rule["name"], jobs_dir=jobs_dir)
+    except OSError:
+        return
+    print(f"Last backup {presets.describe_run(record)}")
+
+
 def add_ssh_options(parser: argparse.ArgumentParser, *, include_device_id: bool = False) -> None:
     parser.add_argument("--config", help="configuration file path")
     parser.add_argument("--ssh-host", help="Termux SSH host")
@@ -555,6 +582,23 @@ def build_parser() -> argparse.ArgumentParser:
     automations_jobs.add_argument("--dir", help="job records directory")
     automations_jobs.add_argument("-n", "--lines", type=int, default=20, help="how many recent jobs (default: 20)")
     automations_jobs.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    automations_presets = automations_actions.add_parser("presets", help="show built-in presets (automatic photo backup) and whether each is on")
+    automations_presets.add_argument("--file", help="rules file")
+    automations_presets.add_argument("--config", help="configuration file path")
+    automations_presets.add_argument("--jobs-dir", help="job records directory")
+    automations_presets.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    for verb, help_text in (("enable", "turn a preset on for a device (writes an ordinary rule)"),
+                            ("disable", "turn a preset off for a device (keeps the rule and every backed-up file)")):
+        preset_parser = automations_actions.add_parser(verb, help=help_text)
+        preset_parser.add_argument("preset", help="preset name, e.g. photo-backup")
+        preset_parser.add_argument("--device", help="device profile (default: the default device)")
+        if verb == "enable":
+            preset_parser.add_argument("--destination", help="backup folder (default: the rule's current folder, else ~/Pictures/Linkplane)")
+        preset_parser.add_argument("--file", help="rules file")
+        preset_parser.add_argument("--config", help="configuration file path")
+        preset_parser.add_argument("--socket", help="daemon control socket to ask for a reload")
+        preset_parser.add_argument("--dry-run", action="store_true", help="show the change without writing it")
+        preset_parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     automations_log = automations_actions.add_parser("log", help="show the daemon's audit log")
     automations_log.add_argument("--file", help="audit log file")
     automations_log.add_argument("-n", "--lines", type=int, default=50, help="how many recent lines (default: 50)")
@@ -1112,6 +1156,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
             else:
                 print_status(status)
+                print_backup_status(arguments)
             return 0
         if arguments.command == "screen":
             return screen(arguments)

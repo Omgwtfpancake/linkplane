@@ -1,4 +1,5 @@
-"""`linkplane automations list|log`: the rules file and the daemon's audit log."""
+"""`linkplane automations list|log|jobs|presets|enable|disable`: the rules file, the daemon's
+audit log and job records, and the built-in presets that write ordinary rules."""
 
 from __future__ import annotations
 
@@ -24,15 +25,23 @@ def list_rules(arguments: Any) -> int:
         state = "enabled" if rule.enabled else "disabled"
         conditions = f" if {rule.conditions}" if rule.conditions else ""
         device = f" on {rule.device}" if rule.device else ""
-        print(f"\n{rule.name}  [{state}]")
-        print(f"When        {rule.when}{device}{conditions}")
-        print(f"Do          {', '.join(step.action for step in rule.do)}")
+        preset = f"  (preset {rule.preset})" if rule.preset else ""
+        initial = ", including when already connected" if rule.on_initial else ""
+        print(f"\n{rule.name}  [{state}]{preset}")
+        print(f"When        {rule.when}{device}{conditions}{initial}")
+        print(f"Do          {', '.join(_describe_step(step) for step in rule.do)}")
         if rule.cooldown_seconds:
             print(f"Cooldown    {rule.cooldown_seconds:g}s")
     for name, blocked in loaded.blocked:
         print(f"\n{name}  [blocked]")
         print(f"Needs       \"allow\": {json.dumps(list(blocked))}")
     return 0
+
+
+def _describe_step(step: Any) -> str:
+    if not step.conditions:
+        return step.action
+    return f"{step.action} (if {json.dumps(step.conditions, sort_keys=True)})"
 
 
 def render_audit(record: dict[str, Any]) -> str:
@@ -106,9 +115,116 @@ def list_jobs(arguments: Any) -> int:
     return 0
 
 
+def _profile(arguments: Any):
+    """The device profile a preset command targets: `--device`, else the default."""
+    from linkplane.core import errors
+    from linkplane.profiles import selected_profile
+    from linkplane.transports import BridgeError, load_config
+
+    try:
+        profile = selected_profile(load_config(arguments.config), arguments.device)
+    except BridgeError as error:
+        raise errors.LinkplaneError(errors.DEVICE_NOT_FOUND, str(error), ("see: linkplane profiles list",)) from error
+    if profile is None:
+        raise errors.LinkplaneError(errors.CONFIG_MISSING, "no device profile to use",
+                                    ("run `linkplane setup` first, or pass --device NAME",))
+    return profile
+
+
+def _reload_daemon(socket: str | None) -> str:
+    from linkplane import daemon as daemond
+    from linkplane.core import errors
+
+    try:
+        daemond.request("reload", socket)
+    except errors.LinkplaneError as error:
+        if error.code == errors.DAEMON_NOT_RUNNING:
+            return "The daemon is not running; the change applies when it starts."
+        return f"The daemon did not reload ({error}); run: linkplane daemon reload"
+    except OSError as error:
+        return f"The daemon did not reload ({error}); run: linkplane daemon reload"
+    return "The running daemon reloaded its rules."
+
+
+def list_presets(arguments: Any) -> int:
+    from linkplane import presets
+    from linkplane.profiles import profiles_from_config
+    from linkplane.transports import BridgeError, load_config
+
+    try:
+        devices = list(profiles_from_config(load_config(arguments.config)))
+    except BridgeError:
+        devices = []
+    rows = presets.summaries(arguments.file, jobs_dir=arguments.jobs_dir, devices=devices)
+    preset = presets.PRESETS[presets.PHOTO_BACKUP]
+    if arguments.json:
+        print_envelope(True, {"presets": [{"name": preset.name, "title": preset.title, "summary": " ".join(preset.summary),
+                                           "devices": rows}]})
+        return 0
+    print("Linkplane Presets")
+    print(f"\n{preset.name}  {preset.title}")
+    for line in preset.summary:
+        print(f"  {line}")
+    if not rows:
+        print("\n  No device profiles yet; run `linkplane setup` first.")
+    for row in rows:
+        print(f"\n  Device      {row['device']}")
+        print(f"  State       {row['state']}")
+        if row["destination"]:
+            print(f"  Folder      {row['destination']}")
+            print(f"  Last run    {row['last_run_summary']}")
+            print(f"  Rule        {row['rule']} (shown by `linkplane automations list`)")
+    print(f"\nTurn on:  linkplane automations enable {preset.name} [--device NAME] [--destination DIR]")
+    print(f"Turn off: linkplane automations disable {preset.name} [--device NAME]")
+    return 0
+
+
+def change_preset(arguments: Any) -> int:
+    from linkplane import presets
+    from linkplane.core import errors
+
+    if arguments.preset not in presets.PRESETS:
+        raise errors.LinkplaneError(errors.REQUEST_INVALID, f"unknown preset {arguments.preset!r}",
+                                    (f"available: {', '.join(presets.PRESETS)}",))
+    profile = _profile(arguments)
+    if arguments.automations_action == "enable":
+        change = presets.enable_photo_backup(profile.name, arguments.destination, device_id=profile.device_id,
+                                             path=arguments.file, dry_run=arguments.dry_run)
+    else:
+        change = presets.disable_photo_backup(profile.name, path=arguments.file, dry_run=arguments.dry_run)
+    reload_note = None
+    if change.changed and not arguments.dry_run:
+        reload_note = _reload_daemon(arguments.socket)
+    if arguments.json:
+        print_envelope(True, {**change.to_dict(), "daemon": reload_note})
+        return 0
+    destination = presets.rule_destination(change.rule)
+    verb = {"created": "is now on", "enabled": "is now on", "updated": "is now on", "disabled": "is now off",
+            "unchanged": "was already " + ("on" if change.rule.get("enabled", True) else "off")}[change.change]
+    prefix = "Would change: " if arguments.dry_run and change.changed else ""
+    print(f"{prefix}Automatic photo backup {verb} for {profile.name}.")
+    print(f"Folder      {destination}")
+    print(f"Rule        {change.rule['name']} in {change.path}")
+    if change.rule.get("enabled", True):
+        print("New photos and videos are copied each time this phone connects; nothing on the phone is changed,")
+        print("and deleting photos from the phone never deletes these backups.")
+        if change.changed and not arguments.dry_run:
+            print("It runs the next time the phone connects (or when the daemon starts with it connected).")
+            print(f"To back up right now instead: linkplane backup {destination} --device {profile.name}")
+    else:
+        print("Photos already backed up stay where they are.")
+    if reload_note:
+        print(reload_note)
+    return 0
+
+
 def run(arguments: Any) -> int:
     if arguments.automations_action == "list":
         return list_rules(arguments)
     if arguments.automations_action == "jobs":
         return list_jobs(arguments)
+    if arguments.automations_action == "presets":
+        return list_presets(arguments)
+    if arguments.automations_action in ("enable", "disable"):
+        return change_preset(arguments)
     return log_audit(arguments)

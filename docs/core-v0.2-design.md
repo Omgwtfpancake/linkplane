@@ -62,8 +62,13 @@ commands. `linkplane events` and `linkplane daemon ...` are the only new command
 | `wifi.connected` / `wifi.disconnected` | SSID appears / disappears / changes | `ssid`, `previous` |
 
 Every event carries `data.initial = true` when it describes an observation rather than a
-change: the state found at observer start, and the first telemetry read after a device
-(re)connects (a device that was away has no battery or Wi-Fi to compare against). The
+change: the state found at observer start (the tracker's first snapshot), and the first
+telemetry read after a device (re)connects (a device that was away has no battery or Wi-Fi
+to compare against). A device that first appears in a later snapshot was connected while
+observing: its `device.connected` is a change (`initial` absent), even though the observer
+had never seen it before. When `adb track-devices` reports an empty first snapshot because
+the ADB server is still enumerating USB devices, a phone that appears a moment later is
+likewise reported as a change. The
 `diff(previous, current) -> [Event]` function that produces these is pure and fully
 unit-tested; sources only produce `DeviceState`s.
 

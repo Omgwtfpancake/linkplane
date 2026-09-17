@@ -94,7 +94,9 @@ Semantics confirmed by tests:
   the only operators; a missing key never matches.
 - Cooldown is per rule, measured from the last non-skipped firing.
 - Changes only: an `initial` event (start-up snapshot or first telemetry after a
-  reconnect) never fires a rule unless `on_initial` is true.
+  reconnect) never fires a rule unless `on_initial` is true. Only devices present in the
+  observer's first snapshot are initial; a phone plugged in later, including the first time
+  this daemon sees it, fires `device.connected` rules without `on_initial`.
 - Placeholders fill from event data, event identity, and previous outcomes; unknown names
   are left as written.
 - Live reload replaces the rule set atomically; cooldown timers survive a reload for rules

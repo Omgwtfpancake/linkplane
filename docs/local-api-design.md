@@ -534,7 +534,7 @@ documented aliases only.
 | `event_type` | `type` | closed, append-only `EVENT_TYPES` (13 today) |
 | `device_id` | `device` | registry name; `"*"` for `observer.started/stopped` |
 | `source` | `source` | `"observer"` today |
-| `initial` | `data.initial` | `true` on the start-up snapshot and the first telemetry after a (re)connect; absent otherwise |
+| `initial` | `data.initial` | `true` on the start-up snapshot (devices present when observation began) and the first telemetry after a (re)connect; absent otherwise, including a device's first connection after start-up |
 | `correlation_id` | `correlation_id` | defaults to the event's own id (root of a chain) |
 | `data` | `data` | per-type payload (`docs/core-v0.2-design.md` event catalogue) |
 

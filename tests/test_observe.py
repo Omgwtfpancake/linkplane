@@ -96,6 +96,74 @@ class ObserverTests(unittest.TestCase):
         self.assertEqual(observer.states["phone"].connection, DISCONNECTED)
         self.assertIsNone(observer.states["phone"].battery)
 
+    def connections(self, events):
+        return [(event.type, event.initial) for event in events if event.type in ("device.connected", "device.disconnected")]
+
+    def test_phone_present_at_start_is_an_initial_observation(self):
+        observer, events = self.make([snapshot(("S1", "device"))], battery_levels=[80])
+        observer.run()
+        self.assertEqual(self.connections(events), [("device.connected", True)])
+
+    def test_phone_plugged_in_after_an_empty_start_is_a_change_not_initial(self):
+        # Regression (v0.6 Slice 2): a serial first seen after start-up used to be reported
+        # initial=true, so rules without on_initial missed the first plug-in after login.
+        observer, events = self.make([snapshot(), snapshot(("S1", "device"))], battery_levels=[80])
+        observer.run()
+        self.assertEqual(self.connections(events), [("device.connected", False)])
+        self.assertEqual(next(e for e in events if e.type == "device.connected").data["address"], "S1")
+
+    def test_reconnect_of_a_phone_present_at_start_is_a_change(self):
+        observer, events = self.make([snapshot(("S1", "device")), snapshot(), snapshot(("S1", "device"))], battery_levels=[80, 80])
+        observer.run()
+        self.assertEqual(self.connections(events), [("device.connected", True), ("device.disconnected", False), ("device.connected", False)])
+
+    def test_reconnect_of_a_phone_plugged_in_later_is_a_change(self):
+        observer, events = self.make([snapshot(), snapshot(("S1", "device")), snapshot(), snapshot(("S1", "device"))], battery_levels=[80, 80])
+        observer.run()
+        self.assertEqual(self.connections(events), [("device.connected", False), ("device.disconnected", False), ("device.connected", False)])
+
+    def test_second_phone_joining_a_non_empty_baseline_is_a_change(self):
+        observer, events = self.make([snapshot(("S1", "device")), snapshot(("S1", "device"), ("S2", "device"))],
+                                     identities={"S1": "phone", "S2": "tablet"})
+        observer.run()
+        connected = {e.device: e.initial for e in events if e.type == "device.connected"}
+        self.assertEqual(connected, {"phone": True, "tablet": False})
+
+    def test_first_telemetry_after_a_later_plug_in_stays_an_observation(self):
+        observer, events = self.make([snapshot(), snapshot(("S1", "device"))], battery_levels=[80])
+        observer.run()
+        battery = next(e for e in events if e.type == "battery.changed")
+        self.assertTrue(battery.initial, "first battery read after a connect has nothing to compare against")
+
+    def test_rules_see_baseline_and_later_connections_correctly(self):
+        from linkplane.core.automation import Engine, StepOutcome, parse_automation
+        from linkplane import presets
+
+        ordinary = parse_automation({"name": "hello", "when": "device.connected", "do": [{"action": "notify-desktop", "message": "hi"}]})
+        preset = parse_automation(presets.photo_backup_rule("phone", "/backups/phone"))
+        ran = []
+
+        def runner(step, event, context, rule):
+            ran.append((rule.name, step.action))
+            return StepOutcome(step.action, True, "fake", {"downloaded": 0})  # nothing new: idempotent
+
+        def fired(frames):
+            ran.clear()
+            observer, events = self.make(frames, battery_levels=[80, 80, 80])
+            observer.run()
+            engine = Engine([ordinary, preset], runner)
+            for event in events:
+                engine.handle(event)
+            return list(ran)
+
+        # Attached at start: only the preset (on_initial) runs; the ordinary rule ignores the baseline.
+        self.assertEqual(fired([snapshot(("S1", "device"))]), [("photo-backup:phone", "backup")])
+        # Plugged in later: both run on the first real plug-in.
+        self.assertEqual(sorted(fired([snapshot(), snapshot(("S1", "device"))])), [("hello", "notify-desktop"), ("photo-backup:phone", "backup")])
+        # Attached at start, then replugged: preset twice, ordinary once; nothing new means no notification step ran.
+        self.assertEqual(fired([snapshot(("S1", "device")), snapshot(), snapshot(("S1", "device"))]),
+                         [("photo-backup:phone", "backup"), ("hello", "notify-desktop"), ("photo-backup:phone", "backup")])
+
     def test_unnamed_serial_gets_a_serial_identity(self):
         observer, events = self.make([snapshot(("ZZ9", "device"))], identities={})
         observer.run()

@@ -124,11 +124,6 @@ Termux:API on the phone; the ADB provider reports them `unsupported` with that r
 
 ## Known limitations
 
-- *(Development, v0.6)* The observer marks a device's **first** connection after the daemon
-  starts as an initial observation, whether it was plugged in before the daemon started or
-  later; only reconnects are changes. Rules without `on_initial` therefore do not fire on
-  the first plug-in after login. The photo-backup preset sets `on_initial`; the global
-  semantics are unchanged (`docs/v0.6-direction.md` §12).
 - Backup discovery runs one `adb shell stat` per phone file and re-hashes every
   already backed-up local file on every run; the cost on a large real library is not
   measured yet (`tools/measure-backup.py`).
@@ -152,6 +147,7 @@ Termux:API on the phone; the ADB provider reports them `unsupported` with that r
 
 | Defect found | Safeguard |
 |---|---|
+| a phone plugged in after the daemon started was reported `initial`, so `device.connected` rules without `on_initial` missed the first plug-in after login | `ObserverTests`: only the tracker's first snapshot is the baseline; `test_phone_plugged_in_after_an_empty_start_is_a_change_not_initial`, `test_rules_see_baseline_and_later_connections_correctly` |
 | SIGTERM from systemd left socket and snapshot behind | `test_sigterm_stops_the_daemon_cleanly` |
 | duplicate opening observations after a reconnect | `test_concurrent_polls_are_serialized_and_do_not_duplicate_observations` |
 | partial history tail swallowed the next record | `test_seq_continues_across_writers_and_skips_corrupt_tail` |

@@ -168,21 +168,32 @@ class Observer:
         # freshly connected device and emit the opening observations twice.
         self._poll_lock = threading.Lock()
         self._addresses: dict[str, str] = {}  # device -> serial
+        # The tracker's first snapshot is the start-up baseline: devices in it are reported
+        # as `initial` observations. A device that first appears in a later snapshot was
+        # plugged in while observing, which is a change (initial=false), even though this
+        # observer has never seen it before.
+        self._baseline_seen = False
 
     def device_name(self, serial: str) -> str:
         return self.identities.get(serial, f"serial:{serial}")
 
     # -- state transitions ------------------------------------------------------------
 
-    def _apply(self, current: DeviceState, *, fresh: bool = False) -> None:
+    def _apply(self, current: DeviceState, *, fresh: bool = False, baseline: bool = False) -> None:
         with self._lock:
             previous = self.states.get(current.device)
+            if previous is None and not baseline:
+                # Unknown before, but not part of the start-up baseline: compare against
+                # "absent" so the arrival is a change, not an opening observation.
+                previous = DeviceState(current.device)
             events = diff(previous, current, low_battery=self.low_battery, fresh=fresh)
             self.states[current.device] = current
         for event in events:
             self.sink(event)
 
     def on_tracker_snapshot(self, snapshot: dict[str, dict[str, str]]) -> None:
+        baseline = not self._baseline_seen
+        self._baseline_seen = True
         seen: set[str] = set()
         for serial, raw in snapshot.items():
             device = self.device_name(serial)
@@ -198,7 +209,7 @@ class Observer:
             )
             if connection != CONNECTED:
                 state = state.touch(battery=None, wifi_ssid=None)
-            self._apply(state)
+            self._apply(state, baseline=baseline)
         for device, previous in list(self.states.items()):
             if device not in seen and previous.connection != DISCONNECTED:
                 self._apply(previous.touch(connection=DISCONNECTED, battery=None, wifi_ssid=None))

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import re
 import shlex
 import shutil
 import time
@@ -24,6 +26,8 @@ from linkplane.operations import (
 from linkplane.core import errors
 from linkplane.transfer import format_bytes
 from linkplane.transports import AdbTransport, BridgeError
+
+log = logging.getLogger("linkplane.backup")
 
 
 DEFAULT_SOURCE = "/sdcard/DCIM/Camera"
@@ -76,6 +80,10 @@ class BackupResult:
     discovery_seconds: float = 0.0
     unchanged_check_seconds: float = 0.0
     duration_seconds: float = 0.0
+    # How the phone's file list was read: "batch" (one `find -printf` call) or "per-file"
+    # (one `stat` call per file, the fallback), and how many adb calls discovery made.
+    discovery_method: str = ""
+    discovery_calls: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -99,26 +107,56 @@ def adb_shell(transport: AdbTransport, command: str, *, timeout: int = 30) -> st
     )
 
 
-def discover_remote_files(transport: AdbTransport, source: str) -> list[RemoteFile]:
-    source_path = validate_source(source)
+# One record per regular file: size, mtime as `seconds.nanoseconds`, path; NUL-terminated so
+# any name Android storage allows (spaces, quotes, `%`, `$()`, Unicode, newlines where a
+# filesystem permits them) survives. Tabs inside a path are safe: only the first two split.
+BATCH_LISTING_FORMAT = "%s\\t%T@\\t%p\\0"
+_BATCH_RECORD = re.compile(r"(\d+)\t(-?\d+)(?:\.\d+)?\t(/.*)", re.DOTALL)
+
+
+def _relative(source_path: PurePosixPath, raw_path: str) -> PurePosixPath:
+    path = PurePosixPath(raw_path)
+    try:
+        relative = path.relative_to(source_path)
+    except ValueError as error:
+        raise BridgeError(f"ADB returned a file outside the backup source: {raw_path}") from error
+    if not relative.parts or any(part in {"", ".", ".."} for part in relative.parts):
+        raise BridgeError(f"ADB returned an invalid backup path: {raw_path}")
+    return relative
+
+
+def parse_batch_listing(output: str, source_path: PurePosixPath) -> list[RemoteFile]:
+    """Strictly parse `find -printf BATCH_LISTING_FORMAT` output. Anything unexpected
+    raises, so a partial or garbled listing is never mistaken for a complete one."""
+    if output and not output.endswith("\0"):
+        raise BridgeError("batch listing is not NUL-terminated")
+    remote_files: list[RemoteFile] = []
+    for record in output.split("\0")[:-1] if output else ():
+        match = _BATCH_RECORD.fullmatch(record)
+        if match is None:
+            raise BridgeError("batch listing has a malformed record")
+        size, modified, raw_path = match.groups()
+        # The integer part of `%T@` is st_mtime's seconds, exactly what `stat -c %Y` prints;
+        # parsed as text so nanoseconds can never round it up.
+        relative = _relative(source_path, raw_path)
+        remote_files.append(RemoteFile(raw_path, relative.as_posix(), int(size), int(modified)))
+    return remote_files
+
+
+def _discover_file_by_file(transport: AdbTransport, source: str, source_path: PurePosixPath) -> tuple[list[RemoteFile], int]:
+    """The original listing: `find -print0`, then one `stat` per file."""
     output = adb_shell(transport, f"find {shlex.quote(source)} -type f -print0")
+    calls = 1
     remote_files: list[RemoteFile] = []
     for raw_path in output.split("\0"):
         if not raw_path:
             continue
-        path = PurePosixPath(raw_path)
-        try:
-            relative = path.relative_to(source_path)
-        except ValueError as error:
-            raise BridgeError(
-                f"ADB returned a file outside the backup source: {raw_path}"
-            ) from error
-        if not relative.parts or any(part in {"", ".", ".."} for part in relative.parts):
-            raise BridgeError(f"ADB returned an invalid backup path: {raw_path}")
+        relative = _relative(source_path, raw_path)
         stat_output = adb_shell(
             transport,
             f"stat -c '%s\t%Y' {shlex.quote(raw_path)}",
         ).strip()
+        calls += 1
         fields = stat_output.split("\t")
         if len(fields) != 2:
             raise BridgeError(f"unable to read file metadata for {raw_path}")
@@ -127,7 +165,35 @@ def discover_remote_files(transport: AdbTransport, source: str) -> list[RemoteFi
         except ValueError as error:
             raise BridgeError(f"invalid file metadata for {raw_path}") from error
         remote_files.append(RemoteFile(raw_path, relative.as_posix(), size, modified))
-    return sorted(remote_files, key=lambda item: item.relative_path)
+    return remote_files, calls
+
+
+def discover(transport: AdbTransport, source: str) -> tuple[list[RemoteFile], str, int]:
+    """Every regular file under `source` with size and mtime, sorted by relative path, plus
+    the method used and the number of adb calls it took.
+
+    One `find -printf` call when the phone's toybox supports it (Android's toybox has for
+    years); if that call fails or its output does not parse completely, the whole listing is
+    redone file by file, so the result is always complete or an error, never partial. Errors
+    are the file-by-file method's, as before."""
+    source_path = validate_source(source)
+    try:
+        output = adb_shell(
+            transport,
+            f"find {shlex.quote(source)} -type f -printf {shlex.quote(BATCH_LISTING_FORMAT)}",
+            timeout=120,
+        )
+        remote_files = parse_batch_listing(output, source_path)
+        method, calls = "batch", 1
+    except BridgeError as error:
+        log.info("batch listing of %s unavailable (%s); listing file by file", source, error)
+        remote_files, calls = _discover_file_by_file(transport, source, source_path)
+        method, calls = "per-file", calls + 1
+    return sorted(remote_files, key=lambda item: item.relative_path), method, calls
+
+
+def discover_remote_files(transport: AdbTransport, source: str) -> list[RemoteFile]:
+    return discover(transport, source)[0]
 
 
 def sha256_file(path: Path) -> str:
@@ -306,7 +372,7 @@ def _backup_selected(
         ),
     )
     check_cancelled(cancel)
-    remote_files = discover_remote_files(transport, source)
+    remote_files, discovery_method, discovery_calls = discover(transport, source)
     discovery_seconds = time.monotonic() - started_clock
     check_cancelled(cancel)
     manifest_path = destination / MANIFEST_NAME
@@ -349,6 +415,8 @@ def _backup_selected(
         verified_bytes=verified_bytes,
         discovery_seconds=round(discovery_seconds, 3),
         unchanged_check_seconds=round(unchanged_check_seconds, 3),
+        discovery_method=discovery_method,
+        discovery_calls=discovery_calls,
     )
     report_progress(
         progress,

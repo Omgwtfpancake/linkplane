@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Measure what an automatic backup costs when nothing is new (docs/v0.6-direction.md §3).
 
-Every backup run discovers the phone's files (one `adb shell stat` per file) and re-hashes
+Every backup run lists the phone's files (one `find -printf` call, or one `adb shell stat`
+per file on a phone whose toybox cannot batch) and re-hashes
 every already backed-up local file before deciding there is nothing to do. This tool
 answers whether that is too slow for backup-on-connect, before anyone optimises it.
 
@@ -36,7 +37,7 @@ def measure_phone(arguments: argparse.Namespace) -> int:
     value = result.value.to_dict()
     report = {key: value[key] for key in (
         "discovered", "skipped", "verified_bytes", "pending", "pending_bytes",
-        "discovery_seconds", "unchanged_check_seconds", "duration_seconds",
+        "discovery_method", "discovery_calls", "discovery_seconds", "unchanged_check_seconds", "duration_seconds",
     )}
     report["preserved"] = len(value["preserved"])
     print(json.dumps(report, indent=2))

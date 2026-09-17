@@ -1,12 +1,16 @@
 import hashlib
 import json
+import shlex
 import tempfile
 import unittest
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from unittest.mock import patch
 
 from linkplane.backup import (
+    BATCH_LISTING_FORMAT,
     BackupRequest,
+    discover,
+    parse_batch_listing,
     _backup_selected,
     MANIFEST_NAME,
     backup_photos,
@@ -21,36 +25,173 @@ from linkplane.transports import AdbTransport, BridgeError
 
 class FakePhone:
     """A scripted phone for the backup service: files by relative path under the camera
-    folder; every adb call is recorded and anything unexpected fails the test."""
+    folder. Shell scripts are split with shlex, exactly as the phone's shell would split the
+    quoted words, so a path only matches when it was quoted correctly. `toybox` selects how
+    `find -printf` behaves: "modern" (supported), "legacy" (unknown option), or "literal"
+    (prints its escapes literally, like a very old implementation might)."""
 
     SOURCE = "/sdcard/DCIM/Camera"
+    MTIME = "1725000000.123456789"
 
-    def __init__(self, files):
+    def __init__(self, files, *, toybox="modern", source=None):
         self.files = dict(files)
+        self.toybox = toybox
+        self.source = source or self.SOURCE
         self.pulls = []
         self.calls = []
+
+    def path(self, name):
+        return f"{self.source}/{name}"
+
+    def shell(self, script):
+        words = shlex.split(script)
+        if words[0] == "find":
+            assert words[1] == self.source and words[2:4] == ["-type", "f"], words
+            if words[4] == "-print0":
+                return "".join(f"{self.path(name)}\0" for name in sorted(self.files))
+            assert words[4] == "-printf" and len(words) == 6, words
+            if self.toybox == "legacy":
+                raise BridgeError("find: Unknown option '-printf'")
+            fmt = words[5]
+            if self.toybox == "modern":
+                fmt = fmt.replace("\\t", "\t").replace("\\0", "\0")
+            return "".join(fmt.replace("%s", str(len(content))).replace("%T@", self.MTIME).replace("%p", self.path(name))
+                           for name, content in sorted(self.files.items()))
+        if words[0] == "stat":
+            assert words[1:3] == ["-c", "%s\t%Y"], words
+            content = self.files[words[3][len(self.source) + 1:]]
+            return f"{len(content)}\t{self.MTIME.split('.')[0]}\n"
+        if words[0] == "sha256sum":
+            content = self.files[words[1][len(self.source) + 1:]]
+            return f"{hashlib.sha256(content).hexdigest()}  {words[1]}\n"
+        raise AssertionError(script)
 
     def run(self, command, **_kwargs):
         self.calls.append(command)
         if command[:4] == ["adb", "-s", "serial-1", "shell"]:
-            script = command[-1]
-            if script.startswith("find "):
-                return "".join(f"{self.SOURCE}/{name}\0" for name in sorted(self.files))
-            for name, content in self.files.items():
-                if script.startswith("stat ") and f"{self.SOURCE}/{name}" in script:
-                    return f"{len(content)}\t1725000000\n"
-                if script.startswith("sha256sum ") and f"{self.SOURCE}/{name}" in script:
-                    return f"{hashlib.sha256(content).hexdigest()}  {self.SOURCE}/{name}\n"
+            return self.shell(command[-1])
         if command[:5] == ["adb", "-s", "serial-1", "pull", "-a"]:
-            name = command[-2][len(self.SOURCE) + 1:]
+            name = command[-2][len(self.source) + 1:]
             self.pulls.append(name)
             Path(command[-1]).write_bytes(self.files[name])
             return ""
         raise AssertionError(command)
 
+    def listing_calls(self):
+        return [c for c in self.calls if c[:4] == ["adb", "-s", "serial-1", "shell"] and c[-1].split()[0] in ("find", "stat")]
+
     def backup(self, destination, **kwargs):
-        return _backup_selected(AdbTransport("serial-1", self.run), {"model": "Phone"}, self.SOURCE, destination,
+        return _backup_selected(AdbTransport("serial-1", self.run), {"model": "Phone"}, self.source, destination,
                                 dry_run=kwargs.pop("dry_run", False), **kwargs)
+
+
+# Names Android shared storage accepts, including ones a careless shell command would break
+# on. (Android's emulated storage refuses `"`, `\\`, `<>|`, tabs and newlines in names;
+# the parser is still tested with tabs and newlines below.)
+DIFFICULT_NAMES = [
+    "with space.jpg", "it's.jpg", "ünïcødé_写真.jpg", "$(echo pwned);`x`&.jpg", "-leading-dash.jpg",
+    "100% %s %p.jpg", "a'b $HOME ~.jpg", "sub dir/nested.jpg", "IMG_0001.jpg",
+]
+
+
+class DiscoveryTests(unittest.TestCase):
+    """v0.6 Slice 3: one `find -printf` call instead of one `stat` per file."""
+
+    def discover(self, phone):
+        return discover(AdbTransport("serial-1", phone.run), phone.source)
+
+    def test_batch_listing_matches_the_file_by_file_listing_exactly(self):
+        files = {name: name.encode() * 3 for name in DIFFICULT_NAMES}
+        batch, method, calls = self.discover(FakePhone(files))
+        legacy, legacy_method, legacy_calls = self.discover(FakePhone(files, toybox="legacy"))
+        self.assertEqual((method, calls), ("batch", 1))
+        self.assertEqual((legacy_method, legacy_calls), ("per-file", 2 + len(files)))
+        self.assertEqual(batch, legacy)
+        self.assertEqual([f.relative_path for f in batch], sorted(DIFFICULT_NAMES))
+        self.assertTrue(all(f.modified == 1725000000 for f in batch), "nanoseconds never round the seconds")
+        self.assertEqual({f.relative_path: f.size for f in batch}, {name: len(content) for name, content in files.items()})
+
+    def test_zero_one_and_many_files_take_exactly_one_adb_call(self):
+        for count in (0, 1, 100):
+            with self.subTest(files=count):
+                phone = FakePhone({f"IMG_{i:04d}.jpg": b"x" * (i + 1) for i in range(count)})
+                listed, method, calls = self.discover(phone)
+                self.assertEqual((len(listed), method, calls), (count, "batch", 1))
+                self.assertEqual(len(phone.listing_calls()), 1, "no stat call per discovered file")
+                self.assertFalse(any(c[-1].startswith("stat ") for c in phone.calls))
+
+    def test_the_source_is_quoted_as_one_word(self):
+        source = "/sdcard/DCIM/it's $(touch x) `y`; z"
+        phone = FakePhone({"a.jpg": b"a"}, source=source)
+        listed, method, _calls = self.discover(phone)  # FakePhone asserts shlex.split(script)[1] == source
+        self.assertEqual((method, [f.path for f in listed]), ("batch", [f"{source}/a.jpg"]))
+        self.assertEqual(shlex.split(phone.calls[0][-1]), ["find", source, "-type", "f", "-printf", BATCH_LISTING_FORMAT])
+
+    def test_unsupported_printf_falls_back_to_a_complete_file_by_file_listing(self):
+        phone = FakePhone({f"IMG_{i}.jpg": b"x" for i in range(5)}, toybox="legacy")
+        listed, method, calls = self.discover(phone)
+        self.assertEqual((len(listed), method, calls), (5, "per-file", 7))
+
+    def test_literal_escapes_are_not_mistaken_for_a_listing(self):
+        phone = FakePhone({"a.jpg": b"a", "b.jpg": b"bb"}, toybox="literal")
+        listed, method, _calls = self.discover(phone)
+        self.assertEqual((method, [f.relative_path for f in listed]), ("per-file", ["a.jpg", "b.jpg"]))
+
+    def test_malformed_batch_output_is_never_a_partial_listing(self):
+        source = PurePosixPath("/sdcard/DCIM/Camera")
+        good = "12\t1725000000.5\t/sdcard/DCIM/Camera/a.jpg\0"
+        for bad in [
+            good + "7\t1725000000.5\t/sdcard/DCIM/Camera/b.jpg",       # truncated: no final NUL
+            good + "x\t1725000000\t/sdcard/DCIM/Camera/b.jpg\0",     # size not a number
+            good + "7\t1725000000\0",                                  # missing path
+            good + "7 1725000000 /sdcard/DCIM/Camera/b.jpg\0",          # wrong separators
+            good + "\0",                                                # empty record
+        ]:
+            with self.subTest(bad=bad), self.assertRaises(BridgeError):
+                parse_batch_listing(bad, source)
+        with self.assertRaisesRegex(BridgeError, "outside the backup source"):
+            parse_batch_listing("1\t1\t/sdcard/Download/x.jpg\0", source)
+        with self.assertRaisesRegex(BridgeError, "invalid backup path"):
+            parse_batch_listing("1\t1\t/sdcard/DCIM/Camera/../x.jpg\0", source)
+        parsed = parse_batch_listing("3\t-5.5\t/sdcard/DCIM/Camera/tab\there.jpg\0" "4\t9\t/sdcard/DCIM/Camera/new\nline.jpg\0", source)
+        self.assertEqual([(f.relative_path, f.size, f.modified) for f in parsed],
+                         [("tab\there.jpg", 3, -5), ("new\nline.jpg", 4, 9)])
+        self.assertEqual(parse_batch_listing("", source), [])
+
+    def test_garbled_batch_falls_back_and_fallback_errors_are_the_old_errors(self):
+        class Garbled(FakePhone):
+            def shell(self, script):
+                if "-printf" in script:
+                    return "12\t1725000000\t/sdcard/DCIM/Camera/a.jpg\0garbage"
+                return super().shell(script)
+
+        listed, method, _ = self.discover(Garbled({"a.jpg": b"a" * 12, "b.jpg": b"b"}))
+        self.assertEqual((method, len(listed)), ("per-file", 2), "the garbled batch is discarded, not trimmed")
+
+        class Broken(FakePhone):
+            def shell(self, script):
+                raise BridgeError("find: /sdcard/DCIM/Camera: No such file or directory")
+
+        with self.assertRaisesRegex(BridgeError, "No such file"):
+            self.discover(Broken({}))
+
+    def test_backup_results_are_unchanged_and_a_no_change_run_is_one_adb_call(self):
+        files = {name: name.encode() for name in DIFFICULT_NAMES}
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "backup"
+            modern, legacy = FakePhone(files), FakePhone(files, toybox="legacy")
+            first = modern.backup(destination / "modern")
+            legacy_first = legacy.backup(destination / "legacy")
+            modern.calls.clear()
+            again = modern.backup(destination / "modern")
+            copied = sorted(str(p.relative_to(destination / "modern")) for p in (destination / "modern").rglob("*.jpg"))
+        comparable = lambda r: {k: v for k, v in r.to_dict().items()
+                                if k not in ("destination", "discovery_method", "discovery_calls") and not k.endswith("_seconds")}
+        self.assertEqual(comparable(first), comparable(legacy_first))
+        self.assertEqual((first.discovery_method, first.discovery_calls, legacy_first.discovery_method), ("batch", 1, "per-file"))
+        self.assertEqual((first.downloaded, again.downloaded, again.skipped), (len(files), 0, len(files)))
+        self.assertEqual(len(modern.calls), 1, "nothing new: one listing call, no stat, no pull")
+        self.assertEqual(copied, sorted(DIFFICULT_NAMES))
 
 
 class BackupTests(unittest.TestCase):

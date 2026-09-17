@@ -642,6 +642,11 @@ non-default `destination`, or with `serial` set, is itself an `invalid_request`)
 
 ### `backup.py` — incremental verified photo backup
 
+Discovery (v0.6 development): one `find SRC -type f -printf '%s\t%T@\t%p\0'` call, parsed
+strictly (every record NUL-terminated, integer size, mtime seconds taken as text, path under
+the source); if the call fails or any record does not parse, the whole listing is redone as
+`find -print0` plus one `stat -c '%s\t%Y'` per file, whose errors are the ones reported.
+
 One line: pull new/changed files from an Android directory (default `/sdcard/DCIM/Camera`) to
 a local directory, skipping files whose size/mtime/SHA-256 already match a JSON manifest, and
 verifying every downloaded file's SHA-256 against the phone's own `sha256sum` before publishing
@@ -681,6 +686,8 @@ class BackupResult:
     discovery_seconds: float = 0.0     # measurement for the unchanged-file strategy
     unchanged_check_seconds: float = 0.0
     duration_seconds: float = 0.0
+    discovery_method: str = ""         # "batch" (one find -printf call) or "per-file" (fallback: find + one stat per file)
+    discovery_calls: int = 0           # adb calls the listing took
     # .to_dict()
 ```
 

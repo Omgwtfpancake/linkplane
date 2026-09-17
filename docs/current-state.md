@@ -125,9 +125,10 @@ Termux:API on the phone; the ADB provider reports them `unsupported` with that r
 
 ## Known limitations
 
-- Backup discovery runs one `adb shell stat` per phone file and re-hashes every
-  already backed-up local file on every run; the cost on a large real library is not
-  measured yet (`tools/measure-backup.py`).
+- Backup lists the phone folder in one `find -printf` call (v0.6 development; a phone whose
+  toybox cannot do that falls back to one `stat` per file) and re-hashes every already
+  backed-up local file on every run: about 1.8 s per 2.95 GB on the development machine
+  (`docs/v0.6-direction.md` §14, `tools/measure-backup.py`).
 - A backup manifest is bound to the ADB serial it was made with, so a wireless serial
   (`host:port`) does not continue a USB-made backup, and automatic camera-photo backup does
   not follow a phone from USB to wireless ADB (deferred: device identity work).

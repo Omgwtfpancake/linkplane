@@ -26,6 +26,10 @@ In development for v0.6 on the `dev/v0.6` branch; not released.
   devices present when observation starts are initial now.
 
 ### Changed
+- `backup` lists the phone folder with one `adb shell` call instead of one per file: on a
+  652-file camera folder, listing went from about 30 s to about 0.1 s, and a nothing-new
+  automatic backup from 27 s to 2 s. Phones whose toybox lacks `find -printf` use the old
+  per-file listing.
 - `backup` checks free space before downloading (`LP-STORAGE-001`), never overwrites a file
   in the destination that it did not create, and refuses to write through a symbolic link
   inside the destination.

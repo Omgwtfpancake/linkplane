@@ -6,9 +6,11 @@ audits exactly like a hand-written rule (docs/v0.6-direction.md §6). Disabling 
 rule's `enabled` to false and keeps it, so its settings stay visible and re-enabling
 restores them; nothing a rule ever wrote (backed-up photos) is touched.
 
-The one preset today is automatic photo backup: when a paired phone connects, including a
-phone already connected when the daemon starts, run the verified, additive, one-way backup
-of its camera folder, then notify the desktop only if something new arrived.
+The one preset today is automatic camera-photo backup: when a paired phone connects,
+including a phone already connected when the daemon starts, run the verified, additive,
+one-way backup of its Android camera folder (`/sdcard/DCIM/Camera` only: not screenshots,
+downloads, or other apps' folders), then notify the desktop if something new arrived, or
+once if the run failed.
 """
 
 from __future__ import annotations
@@ -40,12 +42,13 @@ class Preset:
 PRESETS = {
     PHOTO_BACKUP: Preset(
         PHOTO_BACKUP,
-        "Automatic photo backup",
+        "Automatic camera-photo backup",
         (
-            f"When this phone connects, copy new photos and videos from {DEFAULT_SOURCE} to a folder on this computer.",
+            f"When this phone connects, copy new photos and videos from its camera folder ({DEFAULT_SOURCE})",
+            "to a folder on this computer. Screenshots and other apps' folders are not included.",
             "One-way and additive: nothing on the phone is changed or deleted, and deleting photos",
             "from the phone never deletes their backups. Every copy is checksum-verified.",
-            "A desktop notification appears only when new files were copied.",
+            "A desktop notification appears when new files were copied, or when a backup fails.",
         ),
     ),
 }
@@ -56,6 +59,13 @@ SYSTEM_ROOTS = ("/bin", "/boot", "/dev", "/etc", "/lib", "/lib32", "/lib64", "/p
 
 def rule_name(preset: str, device: str) -> str:
     return f"{preset}:{device}"
+
+
+def default_destination(device: str) -> str:
+    """One folder per phone under the manual backup's default, named after the device
+    profile (profile names are already filesystem-safe: letters, digits, `._-`, starting
+    with a letter or digit), so a second phone never inherits a folder it may not use."""
+    return f"{DEFAULT_DESTINATION}/{device}"
 
 
 def photo_backup_rule(device: str, destination: str, *, enabled: bool = True) -> dict[str, Any]:
@@ -74,8 +84,19 @@ def photo_backup_rule(device: str, destination: str, *, enabled: bool = True) ->
             {
                 "action": "notify-desktop",
                 "if": {"downloaded": {"above": 0}},
-                "title": "Linkplane photo backup",
-                "message": "{downloaded} new photo(s) or video(s) backed up to {destination}",
+                "title": "Linkplane camera-photo backup",
+                "message": "{downloaded} new camera photo(s) or video(s) backed up to {destination}",
+            },
+        ],
+        # One notice per failed run, in fixed words (`actions.FAILURE_REASONS`). Not when
+        # Linkplane itself is stopping (logout, restart): that resumes on its own.
+        "on_error": [
+            {
+                "action": "notify-desktop",
+                "if": {"failure_kind": {"not": "stopped"}},
+                "title": "Automatic camera-photo backup failed",
+                "message": "{failure_reason}",
+                "urgency": "normal",
             },
         ],
     }
@@ -212,7 +233,7 @@ def enable_photo_backup(device: str, destination: str | None = None, *, device_i
         raise errors.LinkplaneError(errors.REQUEST_INVALID, f"{file} already has a hand-written rule named {name!r}",
                                     ("rename or remove that rule first",))
     current = rule_destination(existing) if existing is not None else None
-    chosen = validate_destination(destination or current or DEFAULT_DESTINATION, device_id=device_id, home=home)
+    chosen = validate_destination(destination or current or default_destination(device), device_id=device_id, home=home)
     for rule in rules:
         if (isinstance(rule, dict) and rule.get("preset") == PHOTO_BACKUP and rule.get("name") != name
                 and rule_destination(rule) and Path(os.path.expanduser(rule_destination(rule))).resolve() == chosen):
@@ -237,7 +258,7 @@ def disable_photo_backup(device: str, *, path: str | None = None, dry_run: bool 
     file, config = _read_rules_file(path)
     existing = find_rule(config, PHOTO_BACKUP, device)
     if existing is None or existing.get("preset") != PHOTO_BACKUP:
-        raise errors.LinkplaneError(errors.REQUEST_INVALID, f"automatic photo backup was never enabled for {device!r}",
+        raise errors.LinkplaneError(errors.REQUEST_INVALID, f"automatic camera-photo backup was never enabled for {device!r}",
                                     (f"enable it with: linkplane automations enable {PHOTO_BACKUP} --device {device}",))
     if not existing.get("enabled", True):
         return PresetChange(PHOTO_BACKUP, device, "unchanged", existing, str(file), dry_run)

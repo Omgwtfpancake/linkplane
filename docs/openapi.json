@@ -2012,6 +2012,39 @@
               "null"
             ],
             "description": "the built-in preset that wrote this rule, if any"
+          },
+          "on_error": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "action"
+              ],
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "capability": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "privileged": {
+                  "type": "boolean"
+                },
+                "command": {
+                  "const": "[redacted]",
+                  "description": "run command text is never exposed"
+                },
+                "if": {
+                  "type": "object",
+                  "description": "step-level condition over the event data and earlier results"
+                }
+              },
+              "additionalProperties": true
+            },
+            "description": "steps run once when a `do` step fails"
           }
         }
       },

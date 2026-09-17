@@ -94,6 +94,7 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual((rule["preset"], rule["on_initial"]), ("photo-backup", True))
         self.assertNotIn("if", rule["do"][0])
         self.assertEqual(rule["do"][1]["if"], {"downloaded": {"above": 0}})
+        self.assertEqual((rule["on_error"][0]["action"], rule["on_error"][0]["message"]), ("notify-desktop", "{failure_reason}"))
 
 
 class ReverseAuditReaderTests(unittest.TestCase):

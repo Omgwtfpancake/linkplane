@@ -183,6 +183,18 @@ class EngineTests(unittest.TestCase):
         with self.assertRaises(errors.LinkplaneError):
             rule(preset=7)
 
+    def test_on_error_steps_run_once_after_a_failure_with_the_failure_in_context(self):
+        failing = rule(do=[{"action": "notify-desktop", "fail": True}, {"action": "notify-phone"}],
+                       on_error=[{"action": "notify-phone", "message": "failed: {failed_action}", "fail": True}])
+        firing = self.engine(failing).handle(Event("battery.low", "phone"))[0]
+        self.assertEqual([call[1] for call in self.calls], ["notify-desktop", "notify-phone"])
+        self.assertEqual(self.calls[1][2]["failed_action"], "notify-desktop")
+        self.assertFalse(firing.ok)
+        self.assertEqual([o.ok for o in firing.outcomes], [False, False], "the original failure stays first; a failing notice never re-enters on_error")
+        self.calls.clear()
+        self.engine(rule(on_error=[{"action": "notify-phone"}])).handle(Event("battery.low", "phone"))
+        self.assertEqual([call[1] for call in self.calls], ["notify-desktop"], "no failure, no on_error")
+
     def test_non_matching_event_yields_no_firing(self):
         self.assertEqual(self.engine(rule()).handle(Event("battery.ok", "phone")), [])
 

@@ -140,11 +140,13 @@ def print_backup_status(arguments: argparse.Namespace, *, jobs_dir: str | None =
     if rule is None and len(rules) == 1 and name is None:
         rule = rules[0]
     if rule is None:
-        return
+        if name is None:
+            return  # no registered phone to offer it for
+        rule = {"enabled": False}  # never set up reads the same as off, with the way to turn it on
     if not rule.get("enabled", True):
-        print("Backup      automatic photo backup off")
+        print(f"Backup      automatic camera-photo backup off (turn on: linkplane automations enable {presets.PHOTO_BACKUP})")
         return
-    print(f"Backup      automatic photo backup on, to {presets.rule_destination(rule)}")
+    print(f"Backup      automatic camera-photo backup on, to {presets.rule_destination(rule)}")
     try:
         record = presets.last_run(rule["name"], jobs_dir=jobs_dir)
     except OSError:
@@ -582,7 +584,7 @@ def build_parser() -> argparse.ArgumentParser:
     automations_jobs.add_argument("--dir", help="job records directory")
     automations_jobs.add_argument("-n", "--lines", type=int, default=20, help="how many recent jobs (default: 20)")
     automations_jobs.add_argument("--json", action="store_true", help="emit machine-readable JSON")
-    automations_presets = automations_actions.add_parser("presets", help="show built-in presets (automatic photo backup) and whether each is on")
+    automations_presets = automations_actions.add_parser("presets", help="show built-in presets (automatic camera-photo backup) and whether each is on")
     automations_presets.add_argument("--file", help="rules file")
     automations_presets.add_argument("--config", help="configuration file path")
     automations_presets.add_argument("--jobs-dir", help="job records directory")
@@ -593,7 +595,7 @@ def build_parser() -> argparse.ArgumentParser:
         preset_parser.add_argument("preset", help="preset name, e.g. photo-backup")
         preset_parser.add_argument("--device", help="device profile (default: the default device)")
         if verb == "enable":
-            preset_parser.add_argument("--destination", help="backup folder (default: the rule's current folder, else ~/Pictures/Linkplane)")
+            preset_parser.add_argument("--destination", help="backup folder (default: the rule's current folder, else ~/Pictures/Linkplane/<device>)")
         preset_parser.add_argument("--file", help="rules file")
         preset_parser.add_argument("--config", help="configuration file path")
         preset_parser.add_argument("--socket", help="daemon control socket to ask for a reload")

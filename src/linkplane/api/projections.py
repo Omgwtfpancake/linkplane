@@ -110,6 +110,7 @@ def rule_dict(rule: Automation, *, state: str, blocked_actions: tuple[str, ...] 
         "blocked_actions": list(blocked_actions),
         "do": [_step_dict(step.action, step.options, step.conditions) for step in rule.do],
         "preset": rule.preset,
+        "on_error": [_step_dict(step.action, step.options, step.conditions) for step in rule.on_error],
     }
 
 

@@ -251,7 +251,7 @@ class SetupHappyPathTests(unittest.TestCase):
                 seen.append(phase)
         self.assertEqual(seen, expected)
         self.assertTrue(all(step.check.status in {"ok", "warning"} for step in result.steps if step.phase != AUTOMATIC_BACKUP))
-        self.assertEqual((by_name(result)["Automatic photo backup"].status, by_name(result)["Automatic photo backup"].summary), ("skipped", "off"))
+        self.assertEqual((by_name(result)["Automatic camera-photo backup"].status, by_name(result)["Automatic camera-photo backup"].summary), ("skipped", "off"))
         # Registered with the default name, as the default device, by the real pairing code.
         self.assertEqual(config["default_device"], "phone")
         self.assertEqual(config["devices"]["phone"]["device_id"], SERIAL)
@@ -386,7 +386,7 @@ class AutomaticBackupPhaseTests(unittest.TestCase):
         self.assertEqual(h.confirms, [setup_module.BACKUP_QUESTION])
         self.assertFalse(rules_exist, "declining writes no rule and no file")
         self.assertEqual(h.daemon.restarts, 0)
-        step = by_name(result)["Automatic photo backup"]
+        step = by_name(result)["Automatic camera-photo backup"]
         self.assertEqual((step.status, step.summary), ("skipped", "off"))
         self.assertIn("linkplane automations enable photo-backup", step.fix)
         guidance = "\n".join(next(e.details["guidance"] for e in events if e.phase == AUTOMATIC_BACKUP and "guidance" in e.details))
@@ -400,7 +400,7 @@ class AutomaticBackupPhaseTests(unittest.TestCase):
             h = Harness(directory, confirm=True)
             result = h.run()
         names = [step.check.name for step in result.steps]
-        self.assertLess(names.index("Battery"), names.index("Automatic photo backup"))
+        self.assertLess(names.index("Battery"), names.index("Automatic camera-photo backup"))
         with tempfile.TemporaryDirectory() as directory:
             h = Harness(directory, devices=[[device(state="unauthorized")]], confirm=True)
             failed = h.run(device_wait=2.0)
@@ -421,11 +421,13 @@ class AutomaticBackupPhaseTests(unittest.TestCase):
             "name": "photo-backup:phone", "preset": "photo-backup", "enabled": True, "when": "device.connected",
             "device": "phone", "on_initial": True,
             "do": [{"action": "backup", "source": "/sdcard/DCIM/Camera", "destination": photos},
-                   {"action": "notify-desktop", "if": {"downloaded": {"above": 0}}, "title": "Linkplane photo backup",
-                    "message": "{downloaded} new photo(s) or video(s) backed up to {destination}"}],
+                   {"action": "notify-desktop", "if": {"downloaded": {"above": 0}}, "title": "Linkplane camera-photo backup",
+                    "message": "{downloaded} new camera photo(s) or video(s) backed up to {destination}"}],
+            "on_error": [{"action": "notify-desktop", "if": {"failure_kind": {"not": "stopped"}},
+                          "title": "Automatic camera-photo backup failed", "message": "{failure_reason}", "urgency": "normal"}],
         }])
         self.assertEqual(h.daemon.restarts, 1, "the restart re-observes the connected phone: the first backup starts")
-        step = by_name(result)["Automatic photo backup"]
+        step = by_name(result)["Automatic camera-photo backup"]
         self.assertEqual(step.status, "ok")
         self.assertIn("first backup is starting now", step.summary)
         self.assertEqual(result.automatic_backup["state"], "enabled")
@@ -444,9 +446,9 @@ class AutomaticBackupPhaseTests(unittest.TestCase):
         self.assertEqual(before, after)
         self.assertEqual(h.confirms, [])
         self.assertEqual(h.daemon.restarts, 1, "no second restart")
-        step = by_name(second)["Automatic photo backup"]
+        step = by_name(second)["Automatic camera-photo backup"]
         self.assertEqual(step.status, "ok")
-        self.assertTrue(step.summary.startswith("on: new photos go to "))
+        self.assertTrue(step.summary.startswith("on: new camera photos go to "))
 
     def test_declined_then_rerun_is_not_asked_again(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -455,7 +457,7 @@ class AutomaticBackupPhaseTests(unittest.TestCase):
             h.confirms.clear()
             second = h.run()
         self.assertEqual(h.confirms, [])
-        step = by_name(second)["Automatic photo backup"]
+        step = by_name(second)["Automatic camera-photo backup"]
         self.assertEqual((step.status, step.summary), ("skipped", "off"))
         self.assertIn("automations enable photo-backup", step.fix)
 
@@ -470,7 +472,7 @@ class AutomaticBackupPhaseTests(unittest.TestCase):
             second = h.run()
             after = h.automations.read_text(encoding="utf-8")
         self.assertEqual(before, after)
-        self.assertEqual(by_name(second)["Automatic photo backup"].status, "skipped")
+        self.assertEqual(by_name(second)["Automatic camera-photo backup"].status, "skipped")
         self.assertEqual(second.automatic_backup["state"], "disabled")
 
     def test_non_interactive_and_dry_run_never_enable(self):
@@ -483,8 +485,8 @@ class AutomaticBackupPhaseTests(unittest.TestCase):
             dry = h.run(dry_run=True)
             self.assertFalse(h.automations.exists())
         self.assertNotIn(setup_module.BACKUP_QUESTION, h.confirms)
-        self.assertIn("non-interactive", by_name(quiet)["Automatic photo backup"].summary)
-        self.assertIn("default: no", by_name(dry)["Automatic photo backup"].summary)
+        self.assertIn("non-interactive", by_name(quiet)["Automatic camera-photo backup"].summary)
+        self.assertIn("default: no", by_name(dry)["Automatic camera-photo backup"].summary)
 
     def test_unsafe_folder_is_explained_and_asked_again(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -506,7 +508,7 @@ class AutomaticBackupPhaseTests(unittest.TestCase):
             exists = h.automations.exists()
         self.assertTrue(result.ok, result.failure)
         self.assertFalse(exists)
-        step = by_name(result)["Automatic photo backup"]
+        step = by_name(result)["Automatic camera-photo backup"]
         self.assertEqual(step.status, "warning")
         self.assertIn("not turned on", step.summary)
 
@@ -518,7 +520,7 @@ class AutomaticBackupPhaseTests(unittest.TestCase):
         self.assertTrue(result.ok, result.failure)
         self.assertEqual(len(rules), 1)
         self.assertEqual(h.daemon.restarts, 0)
-        self.assertIn("once the Linkplane service is running", by_name(result)["Automatic photo backup"].summary)
+        self.assertIn("once the Linkplane service is running", by_name(result)["Automatic camera-photo backup"].summary)
 
 
 class DependencyPhaseTests(unittest.TestCase):

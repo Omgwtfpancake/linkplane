@@ -153,7 +153,8 @@ def build_spec() -> dict[str, Any]:
                                   "if": {"type": "object"}, "cooldown_seconds": {"type": "number"}, "on_initial": {"type": "boolean"}, "continue_on_error": {"type": "boolean"},
                                   "allow": {"type": "array", "items": {"type": "string"}}, "blocked_actions": {"type": "array", "items": {"type": "string"}},
                                   "do": {"type": "array", "items": step_schema},
-                                  "preset": {"type": ["string", "null"], "description": "the built-in preset that wrote this rule, if any"}}}
+                                  "preset": {"type": ["string", "null"], "description": "the built-in preset that wrote this rule, if any"},
+                                  "on_error": {"type": "array", "items": step_schema, "description": "steps run once when a `do` step fails"}}}
     rules_summary = {"type": "object", "required": ["loaded", "active", "blocked", "fired"],
                      "properties": {"loaded": {"type": "integer"}, "active": {"type": "array", "items": {"type": "string"}},
                                     "blocked": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}, "fired": {"type": "integer"}}}

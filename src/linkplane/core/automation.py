@@ -53,6 +53,10 @@ class Automation:
     # The built-in preset this rule was generated from (`linkplane.presets`), or None for a
     # hand-written rule. Informational: the engine runs preset rules like any other.
     preset: str | None = None
+    # Steps run once when a `do` step fails (not when it is skipped), with the failure in
+    # the context (`failed_action`, and `failure_kind` / `failure_reason` for job actions).
+    # Their own failures are recorded but never trigger `on_error` again.
+    on_error: tuple[Step, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         record = asdict(self)
@@ -60,14 +64,18 @@ class Automation:
         record["do"] = [step.to_dict() for step in self.do]
         if record["preset"] is None:
             del record["preset"]  # hand-written rules keep their original shape
+        if self.on_error:
+            record["on_error"] = [step.to_dict() for step in self.on_error]
+        else:
+            del record["on_error"]
         return record
 
     @property
     def blocked_actions(self) -> tuple[str, ...]:
         """Privileged actions this rule uses without listing them in `allow`."""
-        return tuple(
-            step.action for step in self.do if step.action in PRIVILEGED and step.action not in self.allow
-        )
+        return tuple(dict.fromkeys(
+            step.action for step in (*self.do, *self.on_error) if step.action in PRIVILEGED and step.action not in self.allow
+        ))
 
 
 def _invalid(name: str, message: str) -> errors.LinkplaneError:
@@ -84,6 +92,19 @@ def _parse_conditions(name: str, conditions: Any, where: str) -> dict[str, Any]:
     return dict(conditions)
 
 
+def _parse_steps(name: str, raw_steps: list[Any], where: str) -> tuple[Step, ...]:
+    steps: list[Step] = []
+    for raw in raw_steps:
+        if not isinstance(raw, Mapping) or "action" not in raw:
+            raise _invalid(name, f"each '{where}' entry needs an 'action'")
+        action = str(raw["action"])
+        if action not in ACTIONS:
+            raise _invalid(name, f"unknown action {action!r}")
+        step_conditions = _parse_conditions(name, raw.get("if") or {}, f"'if' on the {action!r} step")
+        steps.append(Step(action, {k: v for k, v in raw.items() if k not in ("action", "if")}, step_conditions))
+    return tuple(steps)
+
+
 def parse_automation(record: Mapping[str, Any]) -> Automation:
     name = str(record.get("name") or "").strip()
     if not name:
@@ -94,15 +115,11 @@ def parse_automation(record: Mapping[str, Any]) -> Automation:
     raw_steps = record.get("do")
     if not isinstance(raw_steps, list) or not raw_steps:
         raise _invalid(name, "'do' must be a non-empty list of actions")
-    steps: list[Step] = []
-    for raw in raw_steps:
-        if not isinstance(raw, Mapping) or "action" not in raw:
-            raise _invalid(name, "each 'do' entry needs an 'action'")
-        action = str(raw["action"])
-        if action not in ACTIONS:
-            raise _invalid(name, f"unknown action {action!r}")
-        step_conditions = _parse_conditions(name, raw.get("if") or {}, f"'if' on the {action!r} step")
-        steps.append(Step(action, {k: v for k, v in raw.items() if k not in ("action", "if")}, step_conditions))
+    steps = _parse_steps(name, raw_steps, "do")
+    raw_on_error = record.get("on_error") or []
+    if not isinstance(raw_on_error, list):
+        raise _invalid(name, "'on_error' must be a list of actions")
+    on_error = _parse_steps(name, raw_on_error, "on_error")
     conditions = _parse_conditions(name, record.get("if") or {}, "'if'")
     allow = record.get("allow") or ()
     if not isinstance(allow, (list, tuple)) or any(a not in ACTIONS for a in allow):
@@ -117,7 +134,7 @@ def parse_automation(record: Mapping[str, Any]) -> Automation:
     return Automation(
         name=name,
         when=str(when),
-        do=tuple(steps),
+        do=steps,
         device=record.get("device"),
         conditions=dict(conditions),
         enabled=bool(record.get("enabled", True)),
@@ -126,6 +143,7 @@ def parse_automation(record: Mapping[str, Any]) -> Automation:
         on_initial=bool(record.get("on_initial", False)),
         continue_on_error=bool(record.get("continue_on_error", False)),
         preset=preset,
+        on_error=on_error,
     )
 
 
@@ -268,17 +286,27 @@ class Engine:
         """Run one rule's steps in order; the context accumulates each outcome's data."""
         context = event_context(event)
         outcomes: list[StepOutcome] = []
+        failure: StepOutcome | None = None
         for step in rule.do:
-            unmet = [key for key, expected in step.conditions.items() if not condition_holds(context.get(key), expected)]
-            if unmet:
-                outcomes.append(StepOutcome(step.action, True, f"condition not met: {', '.join(unmet)}", skipped=True))
-                continue
-            outcome = self.run_step(step, event, context, rule)
+            outcome = self._run(step, event, context, rule)
             outcomes.append(outcome)
-            context.update(outcome.data)
+            if not outcome.ok and not outcome.skipped and failure is None:
+                failure = outcome
             if not outcome.ok and not rule.continue_on_error:
                 break
+        if failure is not None and rule.on_error:
+            context.update({"failed_action": failure.action, **failure.data})
+            for step in rule.on_error:  # once; these never re-enter on_error
+                outcomes.append(self._run(step, event, context, rule))
         return Firing(rule.name, event, tuple(outcomes))
+
+    def _run(self, step: Step, event: Event, context: dict[str, Any], rule: Automation) -> StepOutcome:
+        unmet = [key for key, expected in step.conditions.items() if not condition_holds(context.get(key), expected)]
+        if unmet:
+            return StepOutcome(step.action, True, f"condition not met: {', '.join(unmet)}", skipped=True)
+        outcome = self.run_step(step, event, context, rule)
+        context.update(outcome.data)
+        return outcome
 
     def handle(self, event: Event) -> list[Firing]:
         """select + fire, sequentially (the foreground `watch` path)."""

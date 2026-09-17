@@ -80,6 +80,41 @@ def run_shell(step: Step, event: Event, context: Mapping[str, Any], rule: Automa
     return StepOutcome(step.action, ok, detail, {"exit_code": completed.returncode, "stdout": (completed.stdout or "")[-2000:]})
 
 
+# What a failed job means for a person, in fixed words: never the raw error text, which can
+# carry paths, serials, or command output. Matched on stable codes first, then on the few
+# service messages whose meaning is unambiguous.
+FAILURE_REASONS = {
+    "storage": "Not enough free space in the backup folder.",
+    "destination": "The backup folder cannot be used; see `linkplane automations jobs`.",
+    "permission": "Linkplane cannot write to the backup folder.",
+    "phone": "The phone was not reachable.",
+    "interrupted": "The phone was disconnected before it finished; it continues next time.",
+    "stopped": "Linkplane stopped before it finished; it continues next time.",
+    "verification": "A copied file did not match the phone's copy and was discarded; it is retried next time.",
+    "failed": "It did not complete; see `linkplane automations jobs`.",
+}
+
+
+def failure_kind(record: JobRecord) -> str:
+    from linkplane.core import errors as error_codes
+
+    error = record.error or {}
+    code, message = error.get("code"), str(error.get("message") or "")
+    if error.get("error_code") == error_codes.STORAGE_INSUFFICIENT:
+        return "storage"
+    if record.state == "cancelled" or code == "cancelled":
+        return "interrupted" if "disconnected" in message else "stopped"
+    if code == "transport_unavailable":
+        return "phone"
+    if "Permission denied" in message or "unable to create backup destination" in message or "unable to store backup file" in message:
+        return "permission"
+    if "symbolic link" in message or "different device or source" in message or "manifest" in message:
+        return "destination"
+    if "checksum verification failed" in message:
+        return "verification"
+    return "failed"
+
+
 def _outcome_from_job(step: Step, record: JobRecord) -> StepOutcome:
     data: dict[str, Any] = {"job_id": record.id, "job_state": record.state}
     if record.result:
@@ -87,6 +122,9 @@ def _outcome_from_job(step: Step, record: JobRecord) -> StepOutcome:
     if record.ok:
         summary = record.progress.get("message") or "done"
         return StepOutcome(step.action, True, f"{summary} (job {record.id})", data)
+    if record.state != "skipped":
+        kind = failure_kind(record)
+        data.update({"failure_kind": kind, "failure_reason": FAILURE_REASONS[kind]})
     error = record.error or {}
     return StepOutcome(step.action, False, f"{record.state}: {error.get('message', 'unknown')} (job {record.id})", data,
                        skipped=record.state == "skipped")

@@ -30,6 +30,8 @@ def list_rules(arguments: Any) -> int:
         print(f"\n{rule.name}  [{state}]{preset}")
         print(f"When        {rule.when}{device}{conditions}{initial}")
         print(f"Do          {', '.join(_describe_step(step) for step in rule.do)}")
+        if rule.on_error:
+            print(f"On error    {', '.join(_describe_step(step) for step in rule.on_error)}")
         if rule.cooldown_seconds:
             print(f"Cooldown    {rule.cooldown_seconds:g}s")
     for name, blocked in loaded.blocked:
@@ -202,12 +204,13 @@ def change_preset(arguments: Any) -> int:
     verb = {"created": "is now on", "enabled": "is now on", "updated": "is now on", "disabled": "is now off",
             "unchanged": "was already " + ("on" if change.rule.get("enabled", True) else "off")}[change.change]
     prefix = "Would change: " if arguments.dry_run and change.changed else ""
-    print(f"{prefix}Automatic photo backup {verb} for {profile.name}.")
+    print(f"{prefix}Automatic camera-photo backup {verb} for {profile.name}.")
     print(f"Folder      {destination}")
     print(f"Rule        {change.rule['name']} in {change.path}")
     if change.rule.get("enabled", True):
-        print("New photos and videos are copied each time this phone connects; nothing on the phone is changed,")
-        print("and deleting photos from the phone never deletes these backups.")
+        print("New photos and videos from the phone's camera folder are copied each time it connects;")
+        print("nothing on the phone is changed, and deleting photos from the phone never deletes these backups.")
+        print("A desktop notification appears when new files were copied, or when a backup fails.")
         if change.changed and not arguments.dry_run:
             print("It runs the next time the phone connects (or when the daemon starts with it connected).")
             print(f"To back up right now instead: linkplane backup {destination} --device {profile.name}")

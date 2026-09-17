@@ -28,7 +28,6 @@ from linkplane import clients as clients_module
 from linkplane import daemon as daemond
 from linkplane import presets
 from linkplane import service
-from linkplane.backup import DEFAULT_DESTINATION as DEFAULT_BACKUP_DESTINATION
 from linkplane.core import errors
 from linkplane.dependencies import (
     DependencyPlan,
@@ -130,13 +129,13 @@ NEXT_STEPS = (
 # Automatic photo backup (v0.6): offered once, when this run registers the phone, after
 # every basic check has passed. The default answer is no; nothing is enabled silently.
 BACKUP_GUIDANCE = (
-    "Linkplane can back up this phone's photos automatically.",
-    "Each time the phone connects, new photos and videos from its camera folder are copied to a",
-    "folder on this computer and checksum-verified. It is one-way: nothing on the phone is changed,",
-    "and deleting photos from the phone never deletes their backups.",
+    "Linkplane can back up the photos and videos in this phone's camera folder automatically.",
+    "Each time the phone connects, new ones are copied to a folder on this computer and",
+    "checksum-verified (screenshots and other apps' folders are not included). It is one-way:",
+    "nothing on the phone is changed, and deleting photos from the phone never deletes their backups.",
 )
-BACKUP_QUESTION = "Turn on automatic photo backup for this phone?"
-BACKUP_FOLDER_QUESTION = "Back up photos to"
+BACKUP_QUESTION = "Turn on automatic camera-photo backup for this phone?"
+BACKUP_FOLDER_QUESTION = "Back up camera photos to"
 BACKUP_ENABLE_COMMAND = f"linkplane automations enable {presets.PHOTO_BACKUP}"
 BACKUP_FOLDER_ATTEMPTS = 3
 ADVANCED_HINT = "Wireless ADB or Termux/SSH later: linkplane pair wireless … / linkplane pair ssh …"
@@ -161,7 +160,7 @@ class SetupOptions:
     api_client: str | None = None
     clients_path: str | None = None
     automations_path: str | None = None
-    backup_destination: str = DEFAULT_BACKUP_DESTINATION  # the default offered, not a choice
+    backup_destination: str | None = None  # the default offered (None: ~/Pictures/Linkplane/<device>), not a choice
     dry_run: bool = False
     interactive: bool = True
     device_wait: float = 120.0
@@ -746,7 +745,7 @@ class _Run:
 
     def automatic_backup(self) -> None:
         phase = AUTOMATIC_BACKUP
-        name = "Automatic photo backup"
+        name = "Automatic camera-photo backup"
         if not self.profile:
             return
         device = self.profile["name"]
@@ -761,7 +760,7 @@ class _Run:
             enabled = existing.get("enabled", True)
             self.backup_result = {"state": "enabled" if enabled else "disabled", "destination": destination, "changed": False}
             if enabled:
-                self.step(phase, name, "ok", f"on: new photos go to {destination}")
+                self.step(phase, name, "ok", f"on: new camera photos go to {destination}")
             else:
                 self.step(phase, name, "skipped", "off", f"Turn it back on: {BACKUP_ENABLE_COMMAND}")
             return
@@ -783,7 +782,7 @@ class _Run:
         problem: errors.LinkplaneError | None = None
         change = None
         for _attempt in range(BACKUP_FOLDER_ATTEMPTS):
-            answer = self.ask(BACKUP_FOLDER_QUESTION, self.options.backup_destination)
+            answer = self.ask(BACKUP_FOLDER_QUESTION, self.options.backup_destination or presets.default_destination(device))
             try:
                 change = presets.enable_photo_backup(device, answer, device_id=self.profile.get("device_id"),
                                                      path=self.options.automations_path)
@@ -805,21 +804,21 @@ class _Run:
             try:
                 self.restart_daemon()
             except BridgeError as error:
-                self.step(phase, name, "warning", f"on: new photos go to {destination}; the service did not restart ({error})",
+                self.step(phase, name, "warning", f"on: new camera photos go to {destination}; the service did not restart ({error})",
                           "It runs the next time the phone connects, or run: systemctl --user restart linkplaned")
                 return
             self.backup_result["first_backup_started"] = True
-            self.step(phase, name, "ok", f"on: new photos go to {destination}; the first backup is starting now")
+            self.step(phase, name, "ok", f"on: new camera photos go to {destination}; the first backup is starting now")
             return
         if self.daemon["running"]:
             try:
                 self.reload_daemon(self.options.socket_path)
             except (BridgeError, OSError):
-                self.step(phase, name, "warning", f"on: new photos go to {destination}", "Apply it with: linkplane daemon reload")
+                self.step(phase, name, "warning", f"on: new camera photos go to {destination}", "Apply it with: linkplane daemon reload")
                 return
-            self.step(phase, name, "ok", f"on: new photos go to {destination} each time the phone connects")
+            self.step(phase, name, "ok", f"on: new camera photos go to {destination} each time the phone connects")
             return
-        self.step(phase, name, "ok", f"on: new photos go to {destination} once the Linkplane service is running")
+        self.step(phase, name, "ok", f"on: new camera photos go to {destination} once the Linkplane service is running")
 
     def api_client(self) -> None:
         phase = API_CLIENT

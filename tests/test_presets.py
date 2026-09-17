@@ -151,6 +151,25 @@ class PresetRuleTests(unittest.TestCase):
             presets.enable_photo_backup("tablet", str(self.photos), device_id="T1", path=self.rules)
         self.assertEqual(presets.enable_photo_backup("tablet", str(self.base / "Tablet"), device_id="T1", path=self.rules).change, "created")
 
+    def test_two_phones_get_distinct_stable_default_folders(self):
+        home = self.base / "home"
+        home.mkdir()
+        with patch.dict(os.environ, {"HOME": str(home)}):
+            phone = presets.enable_photo_backup("phone", None, device_id="S1", path=self.rules, home=str(home))
+            tablet = presets.enable_photo_backup("tablet", None, device_id="T1", path=self.rules, home=str(home))
+            again = presets.enable_photo_backup("phone", None, device_id="S1", path=self.rules, home=str(home))
+        self.assertEqual(presets.rule_destination(phone.rule), str(home / "Pictures" / "Linkplane" / "phone"))
+        self.assertEqual(presets.rule_destination(tablet.rule), str(home / "Pictures" / "Linkplane" / "tablet"))
+        self.assertEqual((phone.change, tablet.change, again.change), ("created", "created", "unchanged"))
+        self.assertEqual(presets.default_destination("phone-2"), "~/Pictures/Linkplane/phone-2")
+
+    def test_an_existing_rule_keeps_its_folder_when_the_default_changes(self):
+        legacy = presets.photo_backup_rule("phone", str(self.base / "Pictures" / "Linkplane"))
+        Path(self.rules).write_text(json.dumps({"schema_version": 1, "automations": [legacy]}))
+        change = presets.enable_photo_backup("phone", None, device_id="S1", path=self.rules)
+        self.assertEqual(change.change, "unchanged")
+        self.assertEqual(presets.rule_destination(self.file()["automations"][0]), str(self.base / "Pictures" / "Linkplane"))
+
     def test_dry_run_writes_nothing(self):
         change = presets.enable_photo_backup("phone", str(self.photos), device_id="S1", path=self.rules, dry_run=True)
         self.assertEqual(change.change, "created")
@@ -282,7 +301,7 @@ class AutomaticBackupDaemonTests(unittest.TestCase):
         self.assertEqual((self.backups[0].destination, self.backups[0].source, self.backups[0].serial),
                          (str(self.photos), "/sdcard/DCIM/Camera", "S1"))
         self.assertEqual(len(self.notifications), 1)
-        self.assertEqual(self.notifications[0][-2:], ["Linkplane photo backup", f"3 new photo(s) or video(s) backed up to {self.photos}"])
+        self.assertEqual(self.notifications[0][-2:], ["Linkplane camera-photo backup", f"3 new camera photo(s) or video(s) backed up to {self.photos}"])
         self.assertEqual(self.fired()[0]["rule"], "photo-backup:phone", "the unrelated rule ignores the initial observation")
 
         InitialObserver.instances[-1].reconnect.set()
@@ -311,18 +330,110 @@ class AutomaticBackupDaemonTests(unittest.TestCase):
         self.assertEqual(self.backups, [])
         self.assertEqual(self.notifications, [])
 
-    def test_a_full_disk_fails_visibly_in_jobs_and_audit_without_a_success_notification(self):
-        self.service_error = OperationResult.failure("operation_failed", "not enough free space in /b: this backup needs 3 GB",
-                                                     error_code=errors.STORAGE_INSUFFICIENT)
+    def test_a_full_disk_fails_visibly_with_one_failure_notification(self):
+        self.service_error = OperationResult.failure(
+            "operation_failed", f"not enough free space in {self.photos}: this backup needs 3 GB, serial S1",
+            error_code=errors.STORAGE_INSUFFICIENT)
         self.start([presets.photo_backup_rule("phone", str(self.photos))])
         self.assertTrue(self.wait_for(lambda: len(self.fired()) == 1))
         firing = self.fired()[0]
         self.assertEqual(firing["decision"], "failed")
-        self.assertEqual([o["action"] for o in firing["details"]["outcomes"]], ["backup"], "stops at the failed backup")
-        self.assertEqual(self.notifications, [])
+        outcomes = firing["details"]["outcomes"]
+        self.assertEqual([(o["action"], o["ok"], o["skipped"]) for o in outcomes],
+                         [("backup", False, False), ("notify-desktop", True, False)],
+                         "the success notification never runs; the failure notice runs once")
+        self.assertEqual(len(self.notifications), 1)
+        title, message = self.notifications[0][-2:]
+        self.assertEqual((title, message), ("Automatic camera-photo backup failed", "Not enough free space in the backup folder."))
+        self.assertNotIn("S1", message)
+        self.assertNotIn(str(self.photos), message, "fixed words: no paths or serials from the raw error")
         last = presets.last_run("photo-backup:phone", jobs_dir=self.jobs_dir)
         self.assertEqual((last.state, last.error["error_code"]), ("failed", errors.STORAGE_INSUFFICIENT))
         self.assertIn("failed: not enough free space", presets.describe_run(last))
+        self.assertEqual(firing["details"]["outcomes"][0]["data"]["failure_kind"], "storage")
+
+    def test_notification_failure_never_hides_the_backup_failure_and_never_loops(self):
+        self.service_error = OperationResult.failure("transport_unavailable", "device S1 not found")
+        self.fake_notify_send = lambda command, **_: (_ for _ in ()).throw(__import__("linkplane.transports", fromlist=["BridgeError"]).BridgeError("no bus"))
+        self.start([presets.photo_backup_rule("phone", str(self.photos))])
+        self.assertTrue(self.wait_for(lambda: len(self.fired()) == 1))
+        time.sleep(0.2)
+        self.assertEqual(len(self.fired()), 1, "a failing failure notice does not fire anything else")
+        outcomes = self.fired()[0]["details"]["outcomes"]
+        self.assertEqual([(o["action"], o["ok"]) for o in outcomes], [("backup", False), ("notify-desktop", False)])
+        self.assertEqual(outcomes[0]["data"]["failure_reason"], "The phone was not reachable.")
+        self.assertEqual(presets.last_run("photo-backup:phone", jobs_dir=self.jobs_dir).state, "failed")
+        self.assertEqual(len(self.backups), 1)
+
+
+class FailureNoticeTests(unittest.TestCase):
+    """The on_error path in the engine, and which job endings deserve a notice."""
+
+    def record(self, state, **error):
+        from linkplane.jobs import JobRecord
+
+        return JobRecord("j1", "photo-backup:phone", "backup", "phone", state, "2026-09-16T10:00:00", error=error or None)
+
+    def test_failure_kinds_use_fixed_words(self):
+        cases = [
+            (self.record("failed", code="operation_failed", message="not enough", error_code=errors.STORAGE_INSUFFICIENT), "storage"),
+            (self.record("failed", code="transport_unavailable", message="ADB device S1 was not found"), "phone"),
+            (self.record("cancelled", code="cancelled", message="phone disconnected"), "interrupted"),
+            (self.record("cancelled", code="cancelled", message="daemon stopping"), "stopped"),
+            (self.record("failed", code="operation_failed", message="unable to create backup destination /x: [Errno 13] Permission denied"), "permission"),
+            (self.record("failed", code="operation_failed", message="refusing to write through a symbolic link in the backup destination: /x"), "destination"),
+            (self.record("failed", code="operation_failed", message="backup destination belongs to a different device or source"), "destination"),
+            (self.record("failed", code="operation_failed", message="checksum verification failed for /sdcard/x"), "verification"),
+            (self.record("failed", code="exception", message="boom at /home/u secret"), "failed"),
+        ]
+        for record, kind in cases:
+            with self.subTest(kind=kind):
+                self.assertEqual(actions.failure_kind(record), kind)
+                reason = actions.FAILURE_REASONS[kind]
+                self.assertNotIn("/", reason.replace("`linkplane automations jobs`", ""))
+
+    def test_on_error_runs_once_only_for_real_failures(self):
+        from linkplane.core.automation import Engine, StepOutcome, parse_automation
+
+        rule = parse_automation(presets.photo_backup_rule("phone", "/b"))
+        ran = []
+        outcome = {}
+
+        def runner(step, event, context, automation):
+            ran.append((step.action, context.get("failure_reason")))
+            if step.action == "backup":
+                return outcome["backup"]
+            return StepOutcome(step.action, True, "sent")
+
+        engine = Engine([rule], runner)
+        event = Event("device.connected", "phone", data={"address": "S1"})
+        cases = {
+            "new files": (StepOutcome("backup", True, "ok", {"downloaded": 2}), [("backup", None), ("notify-desktop", None)]),
+            "nothing new": (StepOutcome("backup", True, "ok", {"downloaded": 0}), [("backup", None)]),
+            "already running": (StepOutcome("backup", False, "skipped", {"job_state": "skipped"}, skipped=True), [("backup", None)]),
+            "failed": (StepOutcome("backup", False, "failed", {"failure_kind": "phone", "failure_reason": "The phone was not reachable."}),
+                       [("backup", None), ("notify-desktop", "The phone was not reachable.")]),
+            "stopping": (StepOutcome("backup", False, "cancelled", {"failure_kind": "stopped", "failure_reason": "x"}), [("backup", None)]),
+        }
+        for name, (backup, expected) in cases.items():
+            with self.subTest(case=name):
+                ran.clear()
+                outcome["backup"] = backup
+                engine.handle(event)
+                self.assertEqual(ran, expected)
+
+    def test_on_error_parses_round_trips_and_counts_toward_consent(self):
+        from linkplane.core.automation import parse_automation
+
+        rule = presets.photo_backup_rule("phone", "/b")
+        parsed = parse_automation(rule)
+        self.assertEqual(parsed.to_dict()["on_error"], rule["on_error"])
+        self.assertNotIn("on_error", parse_automation({"name": "x", "when": "battery.low", "do": [{"action": "notify-desktop"}]}).to_dict())
+        risky = parse_automation({"name": "x", "when": "battery.low", "do": [{"action": "notify-desktop"}],
+                                  "on_error": [{"action": "run", "command": "x"}]})
+        self.assertEqual(risky.blocked_actions, ("run",))
+        with self.assertRaises(errors.LinkplaneError):
+            parse_automation({"name": "x", "when": "battery.low", "do": [{"action": "notify-desktop"}], "on_error": {"action": "run"}})
 
 
 class PresetCliTests(unittest.TestCase):
@@ -347,7 +458,7 @@ class PresetCliTests(unittest.TestCase):
         photos = str(self.base / "Photos")
         code, text = self.cli("automations", "enable", "photo-backup", "--destination", photos, *self.common)
         self.assertEqual(code, 0)
-        self.assertIn("Automatic photo backup is now on for phone.", text)
+        self.assertIn("Automatic camera-photo backup is now on for phone.", text)
         self.assertIn("deleting photos from the phone never deletes these backups", text)
         self.assertIn("The daemon is not running", text)
         code, text = self.cli("automations", "presets", "--file", self.rules, "--config", str(self.config), "--jobs-dir", str(self.base / "jobs"))
@@ -385,14 +496,15 @@ class PresetCliTests(unittest.TestCase):
                 print_backup_status(arguments, jobs_dir=jobs_dir, rules_path=self.rules)
             return output.getvalue()
 
-        self.assertEqual(render(), "", "nothing when the preset was never set up")
+        self.assertEqual(render(), "Backup      automatic camera-photo backup off (turn on: linkplane automations enable photo-backup)\n",
+                         "never set up reads as off, with the way to turn it on")
         presets.enable_photo_backup("phone", str(self.base / "Photos"), device_id="S1", path=self.rules)
-        self.assertEqual(render(), f"Backup      automatic photo backup on, to {(self.base / 'Photos').resolve()}\nLast backup never ran\n")
+        self.assertEqual(render(), f"Backup      automatic camera-photo backup on, to {(self.base / 'Photos').resolve()}\nLast backup never ran\n")
         JobRunner(jobs_dir, retry_delays=()).run(automation="photo-backup:phone", action="backup", device="phone",
                                                  call=lambda cancel, progress: OperationResult.success(backup_value(4)))
         self.assertIn("4 new file(s) copied (40 B)", render())
         presets.disable_photo_backup("phone", path=self.rules)
-        self.assertEqual(render(), "Backup      automatic photo backup off\n")
+        self.assertEqual(render(), "Backup      automatic camera-photo backup off (turn on: linkplane automations enable photo-backup)\n")
         Path(self.rules).write_text("{broken")
         self.assertEqual(render(), "", "a broken rules file never breaks status")
 

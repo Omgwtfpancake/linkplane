@@ -99,6 +99,10 @@ Semantics confirmed by tests:
   this daemon sees it, fires `device.connected` rules without `on_initial`.
 - Placeholders fill from event data, event identity, and previous outcomes; unknown names
   are left as written.
+- *(v0.6 development)* A step with its own `if` is skipped (ok) when unmet. When a step
+  fails (not skipped), the rule's `on_error` steps run once, in order, after the `do` list
+  stops; their outcomes are appended to the firing, which stays failed, and they never
+  re-enter `on_error`.
 - Live reload replaces the rule set atomically; cooldown timers survive a reload for rules
   that keep their name.
 

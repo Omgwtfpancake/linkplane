@@ -47,7 +47,7 @@ cancel, events and SSE, rules and reload, audit). Next: the API milestone review
 | Capability | what a device can do, `battery.read` etc., with a five-state status | `core.capability` |
 | State | what Linkplane currently believes about a device (observed) | `core.state.DeviceState` |
 | Event | one immutable record of a change, with `event_id`, `correlation_id`, `seq` | `core.events.Event` |
-| Rule | a definition in `automations.json`: when / if / do | `core.automation.Automation` (alias `Rule`) |
+| Rule | a definition in `automations.json`: when / if / do (and, v0.6 development, `on_error`) | `core.automation.Automation` (alias `Rule`) |
 | Action | an operation a rule requests (`notify-desktop`, `backup`, …) | `core.automation.Step`, `actions.py` |
 | Job | the tracked execution of a long action | `jobs.JobRecord`, `JobRunner` |
 | Result | what happened when an action ran | `operations.OperationResult`, `StepOutcome` |
@@ -69,7 +69,8 @@ entries and feed later rule actions; they never update `DeviceState`. See
 `screen audio camera webcam` · `pair profiles` · `events [--follow]` · `watch` ·
 `daemon run|status|stop|reload|install|uninstall` · `automations list|log|jobs` ·
 `automations presets|enable|disable` (development, v0.6: built-in presets such as
-`photo-backup` that write ordinary rules; `presets.py`) ·
+`photo-backup`, automatic camera-folder backup with success and failure notices, that write
+ordinary rules; `presets.py`) ·
 `clients create|list|revoke` · `setup` (guided first run: `docs/install-onboarding-design.md` §8–§9;
 composes the dependency catalogue, ADB device states, USB pairing, the unit installer, the
 daemon socket, and the ADB provider; no state file of its own; `--dry-run`, `--json`,
@@ -128,7 +129,8 @@ Termux:API on the phone; the ADB provider reports them `unsupported` with that r
   already backed-up local file on every run; the cost on a large real library is not
   measured yet (`tools/measure-backup.py`).
 - A backup manifest is bound to the ADB serial it was made with, so a wireless serial
-  (`host:port`) does not continue a USB-made backup.
+  (`host:port`) does not continue a USB-made backup, and automatic camera-photo backup does
+  not follow a phone from USB to wireless ADB (deferred: device identity work).
 
 - SSH-only devices are not observed by the daemon (no push source); they are reachable by
   the one-shot commands.

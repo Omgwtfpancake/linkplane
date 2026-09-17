@@ -78,6 +78,27 @@ linkplane --version; python3 --version; adb version | head -1
 Both JSON files contain paths and error codes, never tokens. Please **replace your phone's
 serial number** with `DEVICE_SERIAL` before posting; it is the only identifier in there.
 
+## Automatic camera-photo backup (v0.6 development builds only)
+
+Not in v0.5.1. If you were asked to try a `dev/v0.6` build, this is the feature to try. It
+copies new photos and videos from the phone's camera folder (`/sdcard/DCIM/Camera` only) to
+this computer whenever the phone connects. It is one-way: nothing on the phone is changed or
+deleted.
+
+Setup asks about it only when it registers a new phone. **If your phone was already set up,
+setup will not ask**; turn it on yourself:
+
+```sh
+linkplane status                                   # "Backup ... off (turn on: ...)"
+linkplane automations enable photo-backup          # folder: ~/Pictures/Linkplane/<your phone's name>
+linkplane automations enable photo-backup --destination ~/Pictures/PhoneTest   # or a folder you choose
+```
+
+Then unplug and replug the phone. Expect one desktop notification if new photos were copied,
+nothing if there was nothing new, and one "Automatic camera-photo backup failed" notice if it
+could not run. Check with `linkplane status` and `linkplane automations jobs`. Turn it off
+with `linkplane automations disable photo-backup` (your backed-up photos stay).
+
 ## Report
 
 Open an issue at https://github.com/Omgwtfpancake/linkplane/issues (templates: bug, setup

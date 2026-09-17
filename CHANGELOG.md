@@ -10,11 +10,20 @@ listed here).
 In development for v0.6 on the `dev/v0.6` branch; not released.
 
 ### Added
-- Automatic photo backup preset: `linkplane automations presets|enable|disable photo-backup`
-  writes an ordinary rule that backs up a phone's camera folder whenever it connects and
-  notifies the desktop only when new files arrived. `linkplane setup` offers it once for a
-  newly registered phone (default: no). `linkplane status` shows its state and last run.
-- Rule steps may carry their own `if` condition over earlier results.
+- Automatic camera-photo backup preset: `linkplane automations presets|enable|disable
+  photo-backup` writes an ordinary rule that backs up a phone's camera folder
+  (`/sdcard/DCIM/Camera` only) whenever it connects into `~/Pictures/Linkplane/<device>`,
+  notifies the desktop when new files arrived, and notifies once when a run fails.
+  `linkplane setup` offers it once for a newly registered phone (default: no); phones set up
+  with v0.5.x turn it on with `linkplane automations enable photo-backup`. `linkplane status`
+  shows its state and last run. USB only: it does not yet follow a phone onto wireless ADB.
+- Rule steps may carry their own `if` condition over earlier results; rules may carry
+  `on_error` steps that run once when a step fails.
+
+### Fixed
+- A phone plugged in after the daemon started was reported as an `initial` observation, so
+  `device.connected` rules without `on_initial` missed the first plug-in after login. Only
+  devices present when observation starts are initial now.
 
 ### Changed
 - `backup` checks free space before downloading (`LP-STORAGE-001`), never overwrites a file

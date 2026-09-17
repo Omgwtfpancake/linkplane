@@ -375,6 +375,27 @@ class AutomaticBackupPhaseTests(unittest.TestCase):
     def rules(self, h):
         return json.loads(h.automations.read_text(encoding="utf-8"))["automations"] if h.automations.exists() else []
 
+    def test_harness_never_reaches_the_real_rules_file(self):
+        """Regression (Slice 1): the harness once omitted automations_path, and an opt-in test
+        wrote the developer's real ~/.config/linkplane/automations.json. Every rules-file
+        resolution during a setup run must name an explicit path."""
+        from linkplane import automations
+
+        real = automations.resolve_automations_path
+
+        def guarded(path=None):
+            if path is None:
+                raise AssertionError("setup resolved the default (real) automations.json")
+            return real(path)
+
+        with tempfile.TemporaryDirectory() as directory, patch("linkplane.presets.resolve_automations_path", guarded):
+            h = Harness(directory, confirm=True)
+            opted_in = h.run()
+            again = h.run()
+        self.assertTrue(opted_in.ok and again.ok)
+        self.assertTrue(str(h.automations).startswith(directory))
+        self.assertTrue(h.options().backup_destination.startswith(directory))
+
     def test_decline_is_the_default_and_creates_nothing(self):
         with tempfile.TemporaryDirectory() as directory:
             h = Harness(directory)  # confirm answers no, like pressing Enter at [y/N]

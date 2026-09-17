@@ -164,7 +164,10 @@ order and stops at the first failure unless `"continue_on_error": true`. *(Devel
 unreleased, v0.6)* a step may carry its own `if`, tested when the step is reached against
 the event's data plus every earlier step's result, e.g.
 `{"action": "notify-desktop", "if": {"downloaded": {"above": 0}}, ...}`; an unmet step
-condition skips that step without failing the rule. A rule that uses
+condition skips that step without failing the rule. A rule may also list `on_error` steps:
+they run once when a `do` step fails (not when it is skipped), with `{failed_action}` and,
+for job actions, `{failure_kind}` / `{failure_reason}` (fixed, path-free wording) in the
+context; their own failures are recorded but never trigger `on_error` again. A rule that uses
 `run` must list `"allow": ["run"]`, or it is loaded as *blocked* and shown as such. Rules
 never fire on the opening observation unless `"on_initial": true`. Every firing is written
 to `~/.local/state/linkplane/audit.jsonl`.
@@ -190,7 +193,7 @@ linkplane automations jobs          # recent jobs: state, progress, result or er
 linkplane watch device.connected --backup ~/Pictures/Linkplane   # the same, from a flag
 ```
 
-### Automatic photo backup preset (development, unreleased)
+### Automatic camera-photo backup preset (development, unreleased)
 
 > In development for v0.6 on the `dev/v0.6` branch; not in any release yet.
 
@@ -200,24 +203,45 @@ preset); the daemon runs it like any other rule.
 
 ```sh
 linkplane automations presets                                   # what exists, and whether it is on per phone
-linkplane automations enable photo-backup                       # the default device, ~/Pictures/Linkplane
+linkplane automations enable photo-backup                       # the default device, ~/Pictures/Linkplane/<device>
 linkplane automations enable photo-backup --device phone --destination ~/Backups/Phone
 linkplane automations disable photo-backup                      # off; the rule and every backup stay
 ```
 
-`photo-backup` writes one rule per device profile, named `photo-backup:<device>`: when
-that phone connects, including when it is already connected as the daemon starts, run the
-verified backup of `/sdcard/DCIM/Camera` into the folder, then send a desktop notification
-only if new files were copied. The backup is one-way and additive: nothing on the phone is
-changed, deleting photos from the phone never deletes their backups, and an existing file
-in the folder that Linkplane did not create is never overwritten. The folder must be an
+**Scope: the Android camera folder only** (`/sdcard/DCIM/Camera`). Screenshots, downloads,
+messaging apps' media and other folders are not included.
+
+`photo-backup` writes one rule per device profile, named `photo-backup:<device>`: when that
+phone connects, whether it is plugged in later or already connected as the daemon starts,
+run the verified backup of the camera folder into the backup folder. Then:
+
+- new files copied → one desktop notification ("N new camera photo(s) or video(s) backed up");
+- nothing new → silent;
+- the backup failed → one desktop notification, "Automatic camera-photo backup failed", with
+  a fixed reason (not enough free space, phone not reachable, disconnected before it
+  finished, cannot write to the folder, folder cannot be used, a copy failed verification,
+  or "did not complete"), never raw error text, paths or serials. No notice when Linkplane
+  itself is stopping (logout, restart). The failure is also in `automations jobs`, the audit
+  log and `status`. If desktop notifications are unavailable the failure is still recorded.
+
+The backup is one-way and additive: nothing on the phone is changed, deleting photos from
+the phone never deletes their backups, and an existing file in the folder that Linkplane did
+not create is never overwritten. The default folder is `~/Pictures/Linkplane/<device>`, so
+every phone gets its own; a rule that already exists keeps its folder. The folder must be an
 absolute, user-writable path that is not a system location, the home directory itself,
 another phone's backup, or another phone's preset folder. `enable` and `disable` ask a
-running daemon to reload. `linkplane setup` offers the preset once, after a newly
-registered phone passes every check (default: no).
+running daemon to reload.
 
-`linkplane status` shows `Backup … on, to <folder>` and `Last backup <when>, N new file(s)
-copied` (or the failure) for the selected phone, read from the job records.
+`linkplane setup` offers the preset once, on the run that registers a new phone, after every
+check has passed (default: no). **Phones set up with v0.5.x are not asked again**; turn it
+on with `linkplane automations enable photo-backup`. `linkplane status` shows it for the
+selected phone: `Backup … off (turn on: linkplane automations enable photo-backup)`, or
+`… on, to <folder>` with `Last backup <when>, N new file(s) copied` (or the failure), read
+from the job records.
+
+The backup folder is tied to the ADB serial the backup was made with. A phone backed up over
+USB and later connected only over wireless ADB (`host:port`) does not continue the same
+backup yet; automatic backup is a USB feature in v0.6.
 
 ## Daemon
 

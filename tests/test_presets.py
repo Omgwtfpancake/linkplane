@@ -189,7 +189,7 @@ class LastRunTests(unittest.TestCase):
                      call=lambda cancel, progress: OperationResult.failure("operation_failed", "not enough free space", error_code=errors.STORAGE_INSUFFICIENT))
             latest = presets.last_run("photo-backup:phone", jobs_dir=directory)
             self.assertEqual(latest.state, "failed")
-            self.assertIn("failed: not enough free space", presets.describe_run(latest))
+            self.assertIn("failed: Not enough free space in the backup folder.", presets.describe_run(latest))
             self.assertEqual(latest.error["error_code"], errors.STORAGE_INSUFFICIENT)
             for name in os.listdir(directory):
                 if "failed" in Path(directory, name).read_text() or "not enough" in Path(directory, name).read_text():
@@ -349,7 +349,8 @@ class AutomaticBackupDaemonTests(unittest.TestCase):
         self.assertNotIn(str(self.photos), message, "fixed words: no paths or serials from the raw error")
         last = presets.last_run("photo-backup:phone", jobs_dir=self.jobs_dir)
         self.assertEqual((last.state, last.error["error_code"]), ("failed", errors.STORAGE_INSUFFICIENT))
-        self.assertIn("failed: not enough free space", presets.describe_run(last))
+        self.assertIn("failed: Not enough free space in the backup folder.", presets.describe_run(last))
+        self.assertNotIn(str(self.photos), presets.describe_run(last))
         self.assertEqual(firing["details"]["outcomes"][0]["data"]["failure_kind"], "storage")
 
     def test_notification_failure_never_hides_the_backup_failure_and_never_loops(self):

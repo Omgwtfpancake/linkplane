@@ -306,8 +306,11 @@ def describe_run(record: JobRecord | None) -> str:
         preserved = len(result.get("preserved") or ())
         kept = f"; {preserved} existing file(s) left untouched" if preserved else ""
         return f"{when}, {copied} new file(s) copied{size}{kept}"
-    message = (record.error or {}).get("message", record.state)
-    return f"{when}, {record.state}: {message}"
+    from linkplane.actions import FAILURE_REASONS, failure_kind
+
+    # The same fixed words as the failure notice; the raw error (paths, adb output) stays in
+    # `linkplane automations jobs` and the audit log.
+    return f"{when}, {record.state}: {FAILURE_REASONS[failure_kind(record)]}"
 
 
 def summaries(path: str | None = None, *, jobs_dir: str | None = None, devices: Iterable[str] = ()) -> list[dict[str, Any]]:

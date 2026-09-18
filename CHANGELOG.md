@@ -9,7 +9,7 @@ listed here).
 
 Nothing yet.
 
-## [0.6.0] — unreleased (prepared; dated when tagged)
+## [0.6.0] — 2026-09-17
 
 Automatic camera-photo backup: the first thing Linkplane does on its own.
 See `docs/releases/v0.6.0.md`.

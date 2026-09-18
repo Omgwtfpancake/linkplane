@@ -12,7 +12,9 @@ command, `linkplane`, and a local HTTP API give you and your own programs the sa
 interface.
 
 No account. No cloud. Your phone talks to your computer over a USB cable (wireless ADB is
-available for advanced users), and everything Linkplane knows stays on that computer.
+available for advanced users), and everything Linkplane knows stays on that computer. The
+background service is a `systemd --user` service: it runs as you, with your login session,
+never as root.
 
 ## Why Linkplane
 
@@ -30,10 +32,11 @@ phone connects → Linkplane knows → state and events are available
                → your scripts, bars and programs use one device interface
 ```
 
-The foundation for that works today: the background service observes connections, battery
-and Wi-Fi, and rules can back up new photos whenever the phone connects and tell you when
-they are done. Setting that up still means editing a rules file; making it a one-step
-choice is the next milestone ([`docs/v0.6-direction.md`](docs/v0.6-direction.md)).
+The first step of that works today. Say yes to one question during setup (or run
+`linkplane automations enable photo-backup` later) and every time your phone connects,
+Linkplane copies the new photos and videos from its camera folder to your computer,
+checksum-verifies them, and notifies you only when something was copied or a run failed.
+Details: [`docs/releases/v0.6.0.md`](docs/releases/v0.6.0.md).
 
 **If you only want to copy an occasional file over USB, you probably do not need
 Linkplane.** Your file manager, `adb push`, KDE Connect / GSConnect and LocalSend already
@@ -90,7 +93,8 @@ without it. There is no tray icon or window yet; see the roadmap.
 | **See** | `linkplane status`, battery, storage, memory, Wi-Fi; `linkplane devices` |
 | **Move files** | `linkplane send` to the phone; `linkplane backup` pulls photos incrementally with SHA-256 verification |
 | **Use the phone** | screen mirroring and control, camera preview, audio, a virtual webcam (all via scrcpy); notifications to the phone; ring, vibrate and flash to find it |
-| **React** | `linkplane events` streams connect, disconnect, battery and Wi-Fi changes; `linkplane watch` and rule files run actions when they happen, such as a photo backup when the phone connects |
+| **React** | `linkplane events` streams connect, disconnect, battery and Wi-Fi changes; `linkplane watch` and rule files run actions when they happen |
+| **Automatically** | turn on automatic camera-photo backup once, and every time the phone connects new camera photos are copied, verified and reported |
 | **Build on it** | a background daemon with a local, token-scoped HTTP API and Server-Sent Events, so dashboards, bars and agents can use the same control plane |
 
 ## Quick start
@@ -172,6 +176,7 @@ The full command list is in [`docs/cli-reference.md`](docs/cli-reference.md).
 - **Notifications and find**: `notify` posts to the phone; `find` rings, vibrates and flashes the torch.
 - **Clipboard**: one-shot and synced clipboard between phone and desktop (needs Termux:API on the phone).
 - **Events and automations**: `events`, `watch`, and `automations.json` rules with consent-gated script actions, job tracking, and an audit log.
+- **Automatic camera-photo backup**: `automations presets|enable|disable photo-backup` — one-way, additive, verified backup of the Android camera folder into `~/Pictures/Linkplane/<device>` whenever that phone connects (USB), quiet when nothing is new.
 - **Daemon and API**: `linkplaned` keeps observing between commands; `linkplane clients create` mints a scoped token for the local HTTP API (`http://127.0.0.1:8741/v1`).
 - **Profiles**: several phones by name, USB and wireless ADB aliases, an optional Termux/SSH endpoint.
 

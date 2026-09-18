@@ -10,7 +10,7 @@ a new one. Alpha feedback that motivated it: [`alpha-feedback.md`](alpha-feedbac
 | Milestone | Outcome |
 |---|---|
 | v0.5.x | alpha feedback and fixes |
-| v0.6 (proposed) | the phone does useful work because it is connected: automatic backup on connect |
+| v0.6 (prepared, awaiting release) | the phone does useful work because it is connected: automatic camera-photo backup on connect (`releases/v0.6.0.md`) |
 | later | wireless reconnection · tray / bar client · more presets and triggers · Android agent · MCP · multi-device · macOS · Windows |
 
 ## Refinement pass (complete)

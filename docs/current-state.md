@@ -68,9 +68,9 @@ entries and feed later rule actions; they never update `DeviceState`. See
 `status battery ping capabilities devices doctor` (doctor also reports USB access, configuration permissions, desktop notifications) · `send backup notify clipboard find` ·
 `screen audio camera webcam` · `pair profiles` · `events [--follow]` · `watch` ·
 `daemon run|status|stop|reload|install|uninstall` · `automations list|log|jobs` ·
-`automations presets|enable|disable` (development, v0.6: built-in presets such as
-`photo-backup`, automatic camera-folder backup with success and failure notices, that write
-ordinary rules; `presets.py`) ·
+`automations presets|enable|disable` (v0.6: built-in presets — `photo-backup`, automatic
+camera-folder backup with success and failure notices — that write ordinary rules;
+`presets.py`) ·
 `clients create|list|revoke` · `setup` (guided first run: `docs/install-onboarding-design.md` §8–§9;
 composes the dependency catalogue, ADB device states, USB pairing, the unit installer, the
 daemon socket, and the ADB provider; no state file of its own; `--dry-run`, `--json`,
@@ -125,8 +125,8 @@ Termux:API on the phone; the ADB provider reports them `unsupported` with that r
 
 ## Known limitations
 
-- Backup lists the phone folder in one `find -printf` call (v0.6 development; a phone whose
-  toybox cannot do that falls back to one `stat` per file) and re-hashes every already
+- Backup lists the phone folder in one `find -printf` call (a phone whose toybox cannot do
+  that falls back to one `stat` per file) and re-hashes every already
   backed-up local file on every run: about 1.8 s per 2.95 GB on the development machine
   (`docs/v0.6-direction.md` §14, `tools/measure-backup.py`).
 - A backup manifest is bound to the ADB serial it was made with, so a wireless serial

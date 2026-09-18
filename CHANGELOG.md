@@ -7,32 +7,43 @@ listed here).
 
 ## [Unreleased]
 
-In development for v0.6 on the `dev/v0.6` branch; not released.
+Nothing yet.
+
+## [0.6.0] — unreleased (prepared; dated when tagged)
+
+Automatic camera-photo backup: the first thing Linkplane does on its own.
+See `docs/releases/v0.6.0.md`.
 
 ### Added
-- Automatic camera-photo backup preset: `linkplane automations presets|enable|disable
-  photo-backup` writes an ordinary rule that backs up a phone's camera folder
-  (`/sdcard/DCIM/Camera` only) whenever it connects into `~/Pictures/Linkplane/<device>`,
-  notifies the desktop when new files arrived, and notifies once when a run fails.
-  `linkplane setup` offers it once for a newly registered phone (default: no); phones set up
-  with v0.5.x turn it on with `linkplane automations enable photo-backup`. `linkplane status`
-  shows its state and last run. USB only: it does not yet follow a phone onto wireless ADB.
-- Rule steps may carry their own `if` condition over earlier results; rules may carry
-  `on_error` steps that run once when a step fails.
+- **Automatic camera-photo backup.** When a phone connects, including one already connected
+  when the service starts, Linkplane copies new photos and videos from the Android camera
+  folder (`/sdcard/DCIM/Camera` only) into `~/Pictures/Linkplane/<device>`, verifies every
+  copy, and notifies the desktop when files arrived — or once, safely, when a run failed.
+  Nothing new means no notification. One-way and additive: nothing on the phone is changed,
+  and deleting photos from the phone never deletes their backups.
+- **Opt-in and management.** `linkplane setup` asks once, after a newly registered phone
+  passes every check (default: no). Existing users turn it on with `linkplane automations
+  enable photo-backup`; `automations presets`, `automations list` and `automations disable
+  photo-backup` show and change it. Disabling keeps the rule and every backed-up photo.
+- **Status visibility.** `linkplane status` shows whether automatic backup is on, its folder,
+  and the last run (or the safe reason it failed).
+- **Rule building blocks.** A step may carry its own `if` condition over earlier results, and
+  a rule may carry `on_error` steps that run once when a step fails; `automations list` and
+  `GET /v1/rules` show both, plus the preset a rule came from.
+
+### Changed
+- `backup` lists the phone folder with one `adb shell` call instead of one per file: on a
+  652-file camera folder, listing went from about 30 s to about 0.1 s, and a nothing-new
+  automatic backup from about 30 s to about 2 s. Phones whose toybox lacks `find -printf` use
+  the previous per-file listing; a listing is always complete or an error, never partial.
+- `backup` checks free space before downloading (`LP-STORAGE-001`), never overwrites a file
+  in the destination that it did not create, and refuses to write through a symbolic link
+  inside the destination.
 
 ### Fixed
 - A phone plugged in after the daemon started was reported as an `initial` observation, so
   `device.connected` rules without `on_initial` missed the first plug-in after login. Only
   devices present when observation starts are initial now.
-
-### Changed
-- `backup` lists the phone folder with one `adb shell` call instead of one per file: on a
-  652-file camera folder, listing went from about 30 s to about 0.1 s, and a nothing-new
-  automatic backup from 27 s to 2 s. Phones whose toybox lacks `find -printf` use the old
-  per-file listing.
-- `backup` checks free space before downloading (`LP-STORAGE-001`), never overwrites a file
-  in the destination that it did not create, and refuses to write through a symbolic link
-  inside the destination.
 
 ## [0.5.1] — 2026-09-13
 

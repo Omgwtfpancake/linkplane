@@ -49,6 +49,32 @@ sudo apt install pipx adb
 and runs it only if you say yes. It never installs anything without asking, and it never
 needs root itself.
 
+### Automatic camera-photo backup
+
+At the end of the run that registers a new phone, setup asks once whether to back up that
+phone's camera folder automatically; the default answer is no. If you say yes, new photos and
+videos from `/sdcard/DCIM/Camera` are copied to `~/Pictures/Linkplane/<device>` (or a folder
+you choose) every time the phone connects, verified, and reported with one notification when
+something was copied. Deleting photos from the phone never deletes their backups.
+
+A phone registered before v0.6 is not asked again. Turn it on when you want it:
+
+```sh
+linkplane status                             # Backup ... off (turn on: ...)
+linkplane automations enable photo-backup    # add --device NAME / --destination DIR if you need to
+linkplane automations presets                # state, folder, last run
+linkplane automations disable photo-backup   # off; your backed-up photos stay
+```
+
+### The background service and your session
+
+`linkplaned` is a **`systemd --user` service**: it runs as you, with your login session, and
+never as root. On a normal desktop login it is available for as long as you are logged in and
+starts again at your next login. Where the user service manager stops after logout (a
+headless server, for example), it does not run while you are logged out, so automatic backup
+happens the next time you log in with the phone connected. `loginctl enable-linger` changes
+that if you want it; Linkplane never enables it for you. There is no tray icon or window.
+
 ## Install
 
 ```sh

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "linkplane"
-version = "0.5.1"
+version = "0.6.0"
 description = "An open, local-first control plane for real devices: connect your Android phone to your Linux desktop"
 readme = "README.md"
 requires-python = ">=3.11"

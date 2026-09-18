@@ -1,6 +1,6 @@
 # Roadmap
 
-**Where Linkplane is now:** package 0.5.1, public alpha. The sections below record the
+**Where Linkplane is now:** package 0.6.0, public alpha. The sections below record the
 engineering milestones already completed (Core v0.1, Core v0.2, automation, refinement, the
 local API, onboarding). The next product milestone is proposed in
 [`v0.6-direction.md`](v0.6-direction.md): *automatic usefulness*, automatic photo backup on

@@ -124,7 +124,7 @@ Choose the section for your operating system and run only that one.
 
 ```sh
 sudo pacman -S --needed python-pipx android-tools android-udev
-pipx install https://github.com/Omgwtfpancake/linkplane/releases/download/v0.5.1/linkplane-0.5.1-py3-none-any.whl
+pipx install https://github.com/Omgwtfpancake/linkplane/releases/download/v0.6.0/linkplane-0.6.0-py3-none-any.whl
 ```
 
 **Ubuntu 24.04**
@@ -132,13 +132,13 @@ pipx install https://github.com/Omgwtfpancake/linkplane/releases/download/v0.5.1
 ```sh
 sudo apt update
 sudo apt install pipx adb
-pipx install https://github.com/Omgwtfpancake/linkplane/releases/download/v0.5.1/linkplane-0.5.1-py3-none-any.whl
+pipx install https://github.com/Omgwtfpancake/linkplane/releases/download/v0.6.0/linkplane-0.6.0-py3-none-any.whl
 ```
 
 Then check `linkplane --version`. If the command is not found, run `pipx ensurepath` once
 and open a new terminal.
 
-Current version: **0.5.1, public alpha** (a GitHub pre-release; not on PyPI yet).
+Current version: **0.6.0, public alpha** (a GitHub pre-release; not on PyPI yet).
 Details, upgrade and removal: [`docs/install.md`](docs/install.md).
 
 ## Connect your Android phone

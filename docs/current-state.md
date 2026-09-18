@@ -143,8 +143,9 @@ Termux:API on the phone; the ADB provider reports them `unsupported` with that r
 - `camera.capture` is in the catalogue but not in the HTTP action runtime (privacy
   boundary; per-action approval gates are deferred).
 - No GUI, MCP, packaging, or Android agent yet.
-- Package version is `0.5.1` (public alpha; `v0.5.0` was the first public release, `v0.5.1`
-  the onboarding-polish patch; `docs/releases/`, `docs/versioning.md`). No PyPI or AUR distribution yet.
+- Package version is `0.6.0` (public alpha; `v0.5.0` was the first public release, `v0.5.1`
+  the onboarding-polish patch, `v0.6.0` automatic camera-photo backup; `docs/releases/`,
+  `docs/versioning.md`). No PyPI or AUR distribution yet.
 
 ## Regression safeguards
 

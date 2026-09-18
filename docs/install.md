@@ -3,7 +3,7 @@
 Linkplane is a Python 3.11+ program with no third-party Python dependencies. It runs on a
 Linux desktop with `systemd --user` and talks to Android phones through `adb`.
 
-**Status:** version 0.5.1 (public alpha), published as a GitHub pre-release with a
+**Status:** version 0.6.0 (public alpha), published as a GitHub pre-release with a
 wheel and an sdist. There is no PyPI package yet, so installs use the release wheel URL.
 Nothing below requires root except installing system packages with your distribution's
 package manager.
@@ -78,8 +78,8 @@ that if you want it; Linkplane never enables it for you. There is no tray icon o
 ## Install
 
 ```sh
-pipx install https://github.com/Omgwtfpancake/linkplane/releases/download/v0.5.1/linkplane-0.5.1-py3-none-any.whl
-linkplane --version           # linkplane 0.5.1
+pipx install https://github.com/Omgwtfpancake/linkplane/releases/download/v0.6.0/linkplane-0.6.0-py3-none-any.whl
+linkplane --version           # linkplane 0.6.0
 ```
 
 If `linkplane` is not found after installation, run `pipx ensurepath` once and open a new
@@ -87,7 +87,7 @@ terminal; it adds `~/.local/bin` to your PATH. If the command is already found, 
 nothing to do.
 
 `which linkplane` should print `~/.local/bin/linkplane`. The same result from the tagged
-source, if you prefer (needs `git`): `pipx install "git+https://github.com/Omgwtfpancake/linkplane.git@v0.5.1"`.
+source, if you prefer (needs `git`): `pipx install "git+https://github.com/Omgwtfpancake/linkplane.git@v0.6.0"`.
 Once Linkplane is on PyPI the artifact becomes the package name (`pipx install linkplane`).
 Other isolation tools that produce a console script on PATH (for example `uv tool install`)
 work the same way but are not the documented path.
